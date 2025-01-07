@@ -165,7 +165,7 @@ jobs:
           git push
 
   trigger-next-workflow:
-    needs: download-batch
+    needs: [download-batch, commit-changes]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Next Download Images Workflow
