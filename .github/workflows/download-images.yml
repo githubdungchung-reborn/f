@@ -34,20 +34,14 @@ jobs:
             start=$(jq -r '.start' range.json)
             end=$(jq -r '.end' range.json)
           else
-            start="${{ inputs.start_range || '87000' }}"
-            end="${{ inputs.end_range || '87500' }}"
+            start="${{ inputs.start_range || '1000' }}"
+            end="${{ inputs.end_range || '2000' }}"
           fi
           
-          # Calculate batches of 500
+          # Create ranges for each letter a-z
           ranges=()
-          current=$start
-          while [ $current -lt $end ]; do
-            batch_end=$((current + 500))
-            if [ $batch_end -gt $end ]; then
-              batch_end=$end
-            fi
-            ranges+=("{\"start\":$current,\"end\":$batch_end}")
-            current=$((batch_end + 1))
+          for letter in {a..z}; do
+            ranges+=("{\"prefix\":\"$letter\",\"start\":$start,\"end\":$end}")
           done
           
           matrix=$(printf '%s\n' "${ranges[@]}" | jq -sc '{range: .}')
@@ -165,7 +159,7 @@ jobs:
           git push
 
   trigger-next-workflow:
-    needs: [download-batch, commit-changes]
+    needs: download-batch
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Next Download Images Workflow
