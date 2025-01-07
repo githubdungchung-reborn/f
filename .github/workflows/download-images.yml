@@ -91,13 +91,6 @@ jobs:
             
             # Log the empty range
             echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}" >> empty_ranges.log
-            
-            # Commit the log file
-            git config user.name "${{ github.repository_owner }}"
-            git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
-            git add empty_ranges.log
-            git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
-            git push
           else
             echo "has_images=true" >> $GITHUB_OUTPUT
           fi
@@ -111,7 +104,6 @@ jobs:
 
   commit-changes:
     needs: [prepare-matrix, download-batch]
-    if: needs.download-batch.outputs.has_images == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -145,8 +137,8 @@ jobs:
           echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
           git add range.json
 
-          # Add all downloaded images
-          git add images_*
+          # Add all downloaded images and empty ranges log
+          git add images_* empty_ranges.log
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -154,7 +146,11 @@ jobs:
           fi
           
           today=$(date +%Y-%m-%d)
-          git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
+          if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
+            git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
+          else
+            git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
+          fi
           git push
 
   trigger-next-workflow:
