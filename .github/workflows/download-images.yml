@@ -56,8 +56,7 @@ jobs:
     strategy:
       matrix: ${{fromJson(needs.prepare-matrix.outputs.matrix)}}
       fail-fast: false
-      max-parallel: 2
-    
+      max-parallel: 4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -78,11 +77,11 @@ jobs:
         id: check-downloads
         run: |
           today=$(date +%Y%m%d)
-          folder="images_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
+          folder="images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
           mkdir -p "$folder"
           
-          echo "Processing batch: ${{ matrix.range.start }} to ${{ matrix.range.end }}"
-          python crawler_images.py ${{ matrix.range.start }} ${{ matrix.range.end }}
+          echo "Processing batch: ${{ matrix.range.prefix }}${{ matrix.range.start }} to ${{ matrix.range.prefix }}${{ matrix.range.end }}"
+          python crawler_images.py ${{ matrix.range.prefix }} ${{ matrix.range.start }} ${{ matrix.range.end }}
           
           # Check if any images were downloaded
           image_count=$(find "$folder" -name "*.jpg" | wc -l)
@@ -155,11 +154,11 @@ jobs:
           fi
           
           today=$(date +%Y-%m-%d)
-          git commit -m "chore: download images in ${today} from ids ${next_start} to ${next_end}"
+          git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
           git push
 
   trigger-next-workflow:
-    needs: download-batch
+    needs: [download-batch, commit-changes]
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Next Download Images Workflow
