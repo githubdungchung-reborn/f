@@ -98,7 +98,7 @@ jobs:
       - name: Upload batch artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: batch-${{ matrix.range.start }}-${{ matrix.range.end }}
+          name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
           path: images_*
           retention-days: 1
 
