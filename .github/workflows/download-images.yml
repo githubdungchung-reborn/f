@@ -90,7 +90,7 @@ jobs:
             echo "has_images=false" >> $GITHUB_OUTPUT
             
             # Log the empty range
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}" >> empty_ranges.log
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
           else
             echo "has_images=true" >> $GITHUB_OUTPUT
           fi
@@ -130,6 +130,14 @@ jobs:
         run: |
           git config user.name "${{ github.repository_owner }}"
           git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+
+          # Create empty_ranges.log if it doesn't exist
+          touch empty_ranges.log
+          
+          # Add empty range log if no images were found
+          if [ "${{ needs.download-batch.outputs.has_images }}" = "false" ]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
+          fi
 
           # Update range.json for next run
           next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
