@@ -12,8 +12,7 @@ on:
         required: false
         type: string
   schedule:
-    # Run at 3AM Vietnam time (UTC+7) on 1st, 8th, 15th, and 22nd of each month
-    - cron: "0 20 1,8,15,22 * *"  # 20:00 UTC = 03:00 UTC+7 next day
+    - cron: "0 * * * *"  # Runs at the start of every hour
 
 jobs:
   prepare-matrix:
@@ -161,16 +160,16 @@ jobs:
           fi
           git push
 
-  trigger-next-workflow:
-    needs: [download-batch, commit-changes]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Next Download Images Workflow
-        env:
-          WORKFLOW_FILE_NAME: "download-images.yml"
-        run: |
-          curl -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${{ secrets.PAT }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ env.WORKFLOW_FILE_NAME }}/dispatches \
-            -d '{"ref":"main"}'
+  # trigger-next-workflow:
+  #   needs: [download-batch, commit-changes]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Trigger Next Download Images Workflow
+  #       env:
+  #         WORKFLOW_FILE_NAME: "download-images.yml"
+  #       run: |
+  #         curl -X POST \
+  #           -H "Accept: application/vnd.github.v3+json" \
+  #           -H "Authorization: token ${{ secrets.PAT }}" \
+  #           https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ env.WORKFLOW_FILE_NAME }}/dispatches \
+  #           -d '{"ref":"main"}'
