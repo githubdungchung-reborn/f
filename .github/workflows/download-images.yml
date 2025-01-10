@@ -49,10 +49,15 @@ jobs:
   download-batch:
     needs: prepare-matrix
     runs-on: ubuntu-latest
+    outputs:
+      has_images: ${{ steps.check-downloads.outputs.has_images }}
+      start_range: ${{ matrix.range.start }}
+      end_range: ${{ matrix.range.end }}
+      prefix: ${{ matrix.range.prefix }}
     strategy:
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
