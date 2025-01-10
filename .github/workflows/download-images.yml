@@ -101,6 +101,7 @@ jobs:
           path: images_*
           retention-days: 1
 
+
   # commit-changes:
   #   needs: [prepare-matrix, download-batch]
   #   runs-on: ubuntu-latest
@@ -161,86 +162,86 @@ jobs:
   #         git push
 
   commit-changes:
-  needs: [prepare-matrix, download-batch]
-  runs-on: ubuntu-latest
-  permissions:
-    contents: write
-  
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.PAT }}
-        fetch-depth: 0
+    needs: [prepare-matrix, download-batch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0
 
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: ./downloads
-        merge-multiple: true
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./downloads
+          merge-multiple: true
 
-    - name: Move artifacts to root
-      run: |
-        cp -r ./downloads/* ./
-        rm -rf ./downloads
+      - name: Move artifacts to root
+        run: |
+          cp -r ./downloads/* ./
+          rm -rf ./downloads
 
-    - name: Commit and push changes
-      run: |
-        git config user.name "${{ github.repository_owner }}"
-        git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+      - name: Commit and push changes
+        run: |
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
 
-        # Create empty_ranges.log if it doesn't exist
-        touch empty_ranges.log
-        
-        # Add empty range log if no images were found
-        if [ "${{ needs.download-batch.outputs.has_images }}" = "false" ]; then
-          echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
-        fi
-
-        # Update range.json for next run
-        next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
-        next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
-        echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
-        git add range.json
-
-        # Add all downloaded images and empty ranges log
-        git add images_* empty_ranges.log
-        
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-          exit 0
-        fi
-        
-        today=$(date +%Y-%m-%d)
-        if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
-          git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
-        else
-          git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
-        fi
-        git push
-
-    - name: Delete old artifacts
-      env:
-        REPO: ${{ github.repository }}
-        GITHUB_TOKEN: ${{ secrets.PAT }}
-      run: |
-        echo "Fetching artifacts from repository..."
-        artifacts=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts" | jq -c '.artifacts[]')
-
-        echo "Filtering artifacts for deletion..."
-        for artifact in $artifacts; do
-          id=$(echo $artifact | jq -r '.id')
-          name=$(echo $artifact | jq -r '.name')
-          size=$(echo $artifact | jq -r '.size_in_bytes')
-          updated_at=$(echo $artifact | jq -r '.updated_at')
-          size_in_gb=$((size / 1024 / 1024 / 1024))
-
-          # Check if artifact is older than 1 day or larger than 3GB
-          if [[ "$(date -d "$updated_at" +%s)" -lt "$(date -d '1 day ago' +%s)" || $size_in_gb -gt 3 ]]; then
-            echo "Deleting artifact: $name (ID: $id, Size: $size_in_gb GB, Updated: $updated_at)"
-            curl -X DELETE -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts/$id"
+          # Create empty_ranges.log if it doesn't exist
+          touch empty_ranges.log
+          
+          # Add empty range log if no images were found
+          if [ "${{ needs.download-batch.outputs.has_images }}" = "false" ]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
           fi
-        done
+
+          # Update range.json for next run
+          next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
+          next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
+          echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
+          git add range.json
+
+          # Add all downloaded images and empty ranges log
+          git add images_* empty_ranges.log
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          today=$(date +%Y-%m-%d)
+          if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
+            git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
+          else
+            git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
+          fi
+          git push
+
+      - name: Delete old artifacts
+        env:
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        run: |
+          echo "Fetching artifacts from repository..."
+          artifacts=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts" | jq -c '.artifacts[]')
+
+          echo "Filtering artifacts for deletion..."
+          for artifact in $artifacts; do
+            id=$(echo $artifact | jq -r '.id')
+            name=$(echo $artifact | jq -r '.name')
+            size=$(echo $artifact | jq -r '.size_in_bytes')
+            updated_at=$(echo $artifact | jq -r '.updated_at')
+            size_in_gb=$((size / 1024 / 1024 / 1024))
+
+            # Check if artifact is older than 1 day or larger than 3GB
+            if [[ "$(date -d "$updated_at" +%s)" -lt "$(date -d '1 day ago' +%s)" || $size_in_gb -gt 3 ]]; then
+              echo "Deleting artifact: $name (ID: $id, Size: $size_in_gb GB, Updated: $updated_at)"
+              curl -X DELETE -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts/$id"
+            fi
+          done
 
     # - name: Delete old artifacts
     #   run: |
