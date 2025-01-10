@@ -75,7 +75,7 @@ jobs:
           pip install requests Pillow
   
       - name: Process batch
-        id: process-batch
+        id: check-downloads
         run: |
           today=$(date +%Y%m%d)
           folder="images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
