@@ -52,6 +52,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       has_images: ${{ steps.check-downloads.outputs.has_images }}
+      start_range: ${{ matrix.range.start }}
+      end_range: ${{ matrix.range.end }}
+      prefix: ${{ matrix.range.prefix }}
     strategy:
       matrix: ${{fromJson(needs.prepare-matrix.outputs.matrix)}}
       fail-fast: false
@@ -195,7 +198,7 @@ jobs:
           
           # Add empty range log if no images were found
           if [ "${{ needs.download-batch.outputs.has_images }}" = "false" ]; then
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }} with prefix ${{ needs.download-batch.outputs.prefix }}" >> empty_ranges.log
           fi
 
           # Update range.json for next run
@@ -214,9 +217,9 @@ jobs:
           
           today=$(date +%Y-%m-%d)
           if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
-            git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
+            git commit -m "chore: download images for prefix ${{ needs.download-batch.outputs.prefix }} in ${today} from ids ${next_start} to ${next_end}"
           else
-            git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
+            git commit -m "log: no images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }}"
           fi
           git push
 
