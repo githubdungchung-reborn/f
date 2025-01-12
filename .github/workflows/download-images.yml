@@ -49,6 +49,11 @@ jobs:
   download-batch:
     needs: prepare-matrix
     runs-on: ubuntu-latest
+    outputs:
+      has_images: ${{ steps.check-downloads.outputs.has_images }}
+      start_range: ${{ matrix.range.start }}
+      end_range: ${{ matrix.range.end }}
+      prefix: ${{ matrix.range.prefix }}
     strategy:
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
       fail-fast: false
@@ -70,14 +75,14 @@ jobs:
           pip install requests Pillow
   
       - name: Process batch
-        id: process-batch
+        id: check-downloads
         run: |
           today=$(date +%Y%m%d)
           folder="images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
           mkdir -p "$folder"
           
           echo "Processing batch: ${{ matrix.range.prefix }}${{ matrix.range.start }} to ${{ matrix.range.prefix }}${{ matrix.range.end }}"
-          python crawler_images.py ${{ matrix.range.prefix }} ${{ matrix.range.start }} ${{ matrix.range.end }} "$folder"
+          python crawler_images.py "${{ matrix.range.prefix }}" "${{ matrix.range.start }}" "${{ matrix.range.end }}" "$folder"
           
           # Check if any images were downloaded
           image_count=$(find "$folder" -name "*.jpg" | wc -l)

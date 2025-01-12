@@ -49,16 +49,15 @@ def download_image(code, prefix, base_folder):
         return False
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python script.py <prefix> <start_code> <end_code>")
+    if len(sys.argv) != 5:
+        print("Usage: python script.py <prefix> <start_code> <end_code> <output_folder>")
         sys.exit(1)
 
     prefix = sys.argv[1]
     start_code = int(sys.argv[2])
     end_code = int(sys.argv[3])
+    output_dir = sys.argv[4]
 
-    today = datetime.datetime.now().strftime("%Y%m%d")
-    output_dir = f"images_{prefix}_{today}_{start_code}_to_{end_code}"
     os.makedirs(output_dir, exist_ok=True)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
