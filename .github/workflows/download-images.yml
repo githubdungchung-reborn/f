@@ -38,7 +38,7 @@ jobs:
           fi
           
           # Create ranges for each letter a-z
-          for letter in a b c d q r s t u; do
+          for letter in a b; do
               ranges+=("{\"prefix\":\"$letter\",\"start\":$start,\"end\":$end}")
           done
           
@@ -172,12 +172,6 @@ jobs:
       contents: write
     
     steps:
-      - name: Configure Git LFS
-        run: |
-          git config --global lfs.fetchexclude "*"
-          git config --global filter.lfs.smudge "git-lfs smudge --skip -- %f"
-          git config --global filter.lfs.process "git-lfs filter-process --skip"
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -194,15 +188,6 @@ jobs:
         run: |
           cp -r ./downloads/* ./
           rm -rf ./downloads
-
-      - name: Add images to Git
-        run: |
-          echo "Listing image directories before git add:"
-          ls -la images_*
-          echo "Adding images to Git..."
-          git add images_*
-          echo "Listing staged files:"
-          git diff --staged --name-only
 
       - name: Commit and push changes
         run: |
@@ -221,8 +206,11 @@ jobs:
           next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
           next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
           echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
-          git add range.json empty_ranges.log
+          git add range.json
 
+          # Add all downloaded images and empty ranges log
+          git add *
+          
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
