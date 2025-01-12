@@ -21,10 +21,15 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       total_end: ${{ steps.set-matrix.outputs.total_end }}
     steps:
-      - name: Checkout code
+      - name: Sparse checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          sparse-checkout: |
+            range.json
+            .github/workflows/download-images.yml
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
 
       - name: Load state and prepare matrix
         id: set-matrix
@@ -83,7 +88,6 @@ jobs:
           
           echo "Processing batch: ${{ matrix.range.prefix }}${{ matrix.range.start }} to ${{ matrix.range.prefix }}${{ matrix.range.end }}"
           python crawler_images.py "${{ matrix.range.prefix }}" "${{ matrix.range.start }}" "${{ matrix.range.end }}" "$folder"
-          
           # Check if any images were downloaded
           image_count=$(find "$folder" -name "*.jpg" | wc -l)
           if [ "$image_count" -eq 0 ]; then
@@ -103,7 +107,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
-          path: ${{ steps.check-downloads.outputs.folder_name }}
+          path: images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}/
           retention-days: 1
 
   # commit-changes:
