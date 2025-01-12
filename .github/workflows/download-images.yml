@@ -107,67 +107,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
-          path: images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}/
+          path: images_${{ matrix.range.prefix }}_${{ matrix.range.start }}_to_${{ matrix.range.end }}/
           retention-days: 1
-
-  # commit-changes:
-  #   needs: [prepare-matrix, download-batch]
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     contents: write
-    
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #       with:
-  #         token: ${{ secrets.PAT }}
-  #         fetch-depth: 0
-
-  #     - name: Download all artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: ./downloads
-  #         merge-multiple: true
-
-  #     - name: Move artifacts to root
-  #       run: |
-  #         cp -r ./downloads/* ./
-  #         rm -rf ./downloads
-
-  #     - name: Commit and push changes
-  #       run: |
-  #         git config user.name "${{ github.repository_owner }}"
-  #         git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
-
-  #         # Create empty_ranges.log if it doesn't exist
-  #         touch empty_ranges.log
-          
-  #         # Add empty range log if no images were found
-  #         if [ "${{ needs.download-batch.outputs.has_images }}" = "false" ]; then
-  #           echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
-  #         fi
-
-  #         # Update range.json for next run
-  #         next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
-  #         next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
-  #         echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
-  #         git add range.json
-
-  #         # Add all downloaded images and empty ranges log
-  #         git add images_* empty_ranges.log
-          
-  #         if git diff --staged --quiet; then
-  #           echo "No changes to commit"
-  #           exit 0
-  #         fi
-          
-  #         today=$(date +%Y-%m-%d)
-  #         if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
-  #           git commit -m "chore: download images for prefix ${{ matrix.range.prefix }} in ${today} from ids ${next_start} to ${next_end}"
-  #         else
-  #           git commit -m "log: no images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }}"
-  #         fi
-  #         git push
 
   commit-changes:
     needs: [prepare-matrix, download-batch]
@@ -213,7 +154,7 @@ jobs:
           git add range.json
 
           # Add all downloaded images and empty ranges log
-          git add *
+          git add .
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -250,25 +191,3 @@ jobs:
               curl -X DELETE -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts/$id"
             fi
           done
-
-    # - name: Delete old artifacts
-    #   run: |
-    #     # Delete all old artifacts in the repository
-    #     curl -X DELETE \
-    #       -H "Authorization: Bearer ${{ secrets.PAT }}" \
-    #       https://api.github.com/repos/${{ github.repository }}/actions/artifacts \
-    #       -d '{"query": "artifacts older than 1 day"}'
-
-  # trigger-next-workflow:
-  #   needs: [download-batch, commit-changes]
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Trigger Next Download Images Workflow
-  #       env:
-  #         WORKFLOW_FILE_NAME: "download-images.yml"
-  #       run: |
-  #         curl -X POST \
-  #           -H "Accept: application/vnd.github.v3+json" \
-  #           -H "Authorization: token ${{ secrets.PAT }}" \
-  #           https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ env.WORKFLOW_FILE_NAME }}/dispatches \
-  #           -d '{"ref":"main"}'
