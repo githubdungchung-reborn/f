@@ -197,6 +197,7 @@ jobs:
             empty_ranges.log
             range.json
             .github/workflows/download-images.yml
+            images_*
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           lfs: false
