@@ -219,6 +219,10 @@ jobs:
           cp -r ./downloads/* ./
           rm -rf ./downloads
 
+      - name: Add images to Git
+        run: |
+          git add images_*
+
       - name: Commit and push changes
         run: |
           git config user.name "${{ github.repository_owner }}"
@@ -236,11 +240,8 @@ jobs:
           next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
           next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
           echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
-          git add range.json
+          git add range.json empty_ranges.log
 
-          # Add all downloaded images and empty ranges log
-          git add images_* empty_ranges.log
-          
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
