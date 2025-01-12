@@ -21,10 +21,15 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       total_end: ${{ steps.set-matrix.outputs.total_end }}
     steps:
-      - name: Checkout code
+      - name: Sparse checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          sparse-checkout: |
+            range.json
+            .github/workflows/download-images.yml
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
 
       - name: Load state and prepare matrix
         id: set-matrix
@@ -59,10 +64,16 @@ jobs:
       fail-fast: false
       max-parallel: 8
     steps:
-      - name: Checkout code
+      - name: Sparse checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          sparse-checkout: |
+            crawler_images.py
+            .github/workflows/download-images.yml
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+          lfs: false
   
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -95,12 +106,15 @@ jobs:
           else
             echo "has_images=true" >> $GITHUB_OUTPUT
           fi
-  
+          
+          # Export the folder name as an output
+          echo "folder_name=$folder" >> $GITHUB_OUTPUT
+
       - name: Upload batch artifacts
         uses: actions/upload-artifact@v4
         with:
           name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
-          path: images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}/
+          path: ${{ steps.check-downloads.outputs.folder_name }}
           retention-days: 1
 
   # commit-changes:
@@ -169,11 +183,35 @@ jobs:
       contents: write
     
     steps:
-      - name: Checkout code
+      - name: Configure Git LFS
+        run: |
+          git config --global lfs.fetchexclude "*"
+          git config --global filter.lfs.smudge "git-lfs smudge --skip -- %f"
+          git config --global filter.lfs.process "git-lfs filter-process --skip"
+
+      - name: Sparse checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
-          fetch-depth: 0
+          sparse-checkout: |
+            empty_ranges.log
+            range.json
+            .github/workflows/download-images.yml
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+          lfs: false
+
+      - name: Clean old image folders
+        run: |
+          # Keep only the last 5 days of image folders
+          find . -maxdepth 1 -type d -name 'images_*' -mtime +5 -exec rm -rf {} \;
+
+      - name: Setup Git LFS
+        if: needs.download-batch.outputs.has_images == 'true'
+        run: |
+          git lfs install
+          echo "*.jpg filter=lfs diff=lfs merge=lfs -text" > .gitattributes
+          git add .gitattributes
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
