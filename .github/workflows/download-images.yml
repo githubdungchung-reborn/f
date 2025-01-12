@@ -189,16 +189,10 @@ jobs:
           git config --global filter.lfs.smudge "git-lfs smudge --skip -- %f"
           git config --global filter.lfs.process "git-lfs filter-process --skip"
 
-      - name: Sparse checkout
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
-          sparse-checkout: |
-            empty_ranges.log
-            range.json
-            .github/workflows/download-images.yml
-            images_*
-          sparse-checkout-cone-mode: false
           fetch-depth: 1
           lfs: false
 
