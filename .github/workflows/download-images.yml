@@ -49,11 +49,6 @@ jobs:
   download-batch:
     needs: prepare-matrix
     runs-on: ubuntu-latest
-    outputs:
-      has_images: ${{ steps.check-downloads.outputs.has_images }}
-      start_range: ${{ matrix.range.start }}
-      end_range: ${{ matrix.range.end }}
-      prefix: ${{ matrix.range.prefix }}
     strategy:
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
       fail-fast: false
@@ -75,7 +70,7 @@ jobs:
           pip install requests Pillow
   
       - name: Process batch
-        id: check-downloads
+        id: process-batch
         run: |
           today=$(date +%Y%m%d)
           folder="images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
