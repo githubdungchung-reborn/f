@@ -104,11 +104,16 @@ jobs:
           echo "folder_name=$folder" >> $GITHUB_OUTPUT
 
       - name: Upload batch artifacts
+        if: steps.check-downloads.outputs.has_images == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
-          path: images_${{ matrix.range.prefix }}_${{ matrix.range.start }}_to_${{ matrix.range.end }}/
+          path: images_${{ matrix.range.prefix }}_*_${{ matrix.range.start }}_to_${{ matrix.range.end }}
           retention-days: 1
+
+      - name: Skip artifact upload
+        if: steps.check-downloads.outputs.has_images != 'true'
+        run: echo "Skipping artifact upload as no images were downloaded"
 
   commit-changes:
     needs: [prepare-matrix, download-batch]
