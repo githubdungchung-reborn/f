@@ -43,7 +43,7 @@ jobs:
           fi
           
           # Create ranges for each letter a-z
-          for letter in a b; do
+          for letter in a b c d q r s t u; do
               ranges+=("{\"prefix\":\"$letter\",\"start\":$start,\"end\":$end}")
           done
           
