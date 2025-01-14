@@ -62,12 +62,29 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
       fail-fast: false
-      max-parallel: 8
+      # Reduce parallel jobs to prevent disk space issues
+      max-parallel: 3
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          # Use sparse checkout to minimize disk usage
+          sparse-checkout: |
+            crawler_images.py
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+  
+      - name: Clean up disk space
+        run: |
+          echo "Cleaning up disk space before processing..."
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
   
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -77,30 +94,41 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests Pillow
+          pip install --no-cache-dir requests Pillow
   
       - name: Process batch
         id: check-downloads
         run: |
+          # Check available space before processing
+          available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
+          if [ "$available_space" -lt "1000" ]; then
+            echo "Error: Insufficient disk space (less than 1GB available)"
+            exit 1
+          fi
+
           today=$(date +%Y%m%d)
           folder="images_${{ matrix.range.prefix }}_${today}_${{ matrix.range.start }}_to_${{ matrix.range.end }}"
           mkdir -p "$folder"
           
           echo "Processing batch: ${{ matrix.range.prefix }}${{ matrix.range.start }} to ${{ matrix.range.prefix }}${{ matrix.range.end }}"
           python crawler_images.py "${{ matrix.range.prefix }}" "${{ matrix.range.start }}" "${{ matrix.range.end }}" "$folder"
+          
+          # Check disk space after download
+          available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
+          if [ "$available_space" -lt "500" ]; then
+            echo "Warning: Low disk space after download (less than 500MB available)"
+          fi
+          
           # Check if any images were downloaded
           image_count=$(find "$folder" -name "*.jpg" | wc -l)
           if [ "$image_count" -eq 0 ]; then
             echo "No images downloaded in this batch"
             echo "has_images=false" >> $GITHUB_OUTPUT
-            
-            # Log the empty range
             echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
           else
             echo "has_images=true" >> $GITHUB_OUTPUT
           fi
           
-          # Export the folder name as an output
           echo "folder_name=$folder" >> $GITHUB_OUTPUT
 
       - name: Upload batch artifacts
@@ -110,10 +138,14 @@ jobs:
           name: batch-${{ matrix.range.prefix }}-${{ matrix.range.start }}-${{ matrix.range.end }}
           path: images_${{ matrix.range.prefix }}_*_${{ matrix.range.start }}_to_${{ matrix.range.end }}
           retention-days: 1
+          # Add compression to reduce disk space usage
+          compression-level: 9
 
-      - name: Skip artifact upload
-        if: steps.check-downloads.outputs.has_images != 'true'
-        run: echo "Skipping artifact upload as no images were downloaded"
+      - name: Cleanup after upload
+        if: always()
+        run: |
+          rm -rf images_*
+          df -h
 
   commit-changes:
     needs: [prepare-matrix, download-batch]
