@@ -134,10 +134,49 @@ jobs:
           path: ./downloads
           merge-multiple: true
 
+      - name: Check disk space
+        run: |
+          echo "Checking disk space..."
+          df -h
+          echo "Cleaning up unnecessary files..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
       - name: Move artifacts to root
         run: |
-          cp -r ./downloads/* ./
-          rm -rf ./downloads
+          # Check if downloads directory exists and has files
+          if [ ! -d "./downloads" ] || [ -z "$(ls -A ./downloads)" ]; then
+            echo "No artifacts to move or downloads directory doesn't exist"
+            exit 0
+          fi
+
+          # Calculate required space
+          required_space=$(du -sb ./downloads | cut -f1)
+          available_space=$(df -B1 . | awk 'NR==2 {print $4}')
+          
+          if [ $required_space -gt $available_space ]; then
+            echo "Error: Not enough disk space. Required: $(($required_space/1024/1024))MB, Available: $(($available_space/1024/1024))MB"
+            exit 1
+          fi
+
+          # Move files in smaller batches
+          find ./downloads -type f -print0 | while IFS= read -r -d '' file; do
+            target_dir="$(dirname "${file#./downloads/}")"
+            mkdir -p "./$target_dir"
+            cp "$file" "./$target_dir/" || echo "Failed to copy: $file"
+          done
+          
+          # Clean up downloads directory only if copy was successful
+          if [ $? -eq 0 ]; then
+            rm -rf ./downloads
+          else
+            echo "Warning: Some files may not have been copied successfully"
+            exit 1
+          fi
 
       - name: Commit and push changes
         run: |
