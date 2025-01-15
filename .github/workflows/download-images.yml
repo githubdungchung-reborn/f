@@ -205,31 +205,29 @@ jobs:
 
           # Process downloaded files in smaller batches
           if [ -d "./downloads" ]; then
-            cd downloads
-            
             # Process files in batches of 100
-            find . -type f -print0 | while IFS= read -r -d '' file; do
+            find ./downloads -type f -print0 | while IFS= read -r -d '' file; do
               # Check available space
               available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
               if [ "$available_space" -lt "500" ]; then
                 echo "Warning: Low disk space, committing current batch..."
-                cd ..
                 git commit -m "chore: partial commit of downloaded images"
                 git push
-                cd downloads
               fi
 
-              # Create target directory and move file
-              target_dir="../$(dirname "${file#./}")"
+              # Get the relative path within downloads directory
+              rel_path="${file#./downloads/}"
+              # Create target directory relative to current directory
+              target_dir="$(dirname "$rel_path")"
               mkdir -p "$target_dir"
-              mv "$file" "$target_dir/"
+              
+              # Move file to target directory
+              cp "$file" "$target_dir/"
+              rm "$file"
               
               # Stage the moved file
-              cd ..
               git add "$target_dir/$(basename "$file")"
-              cd downloads
             done
-            cd ..
           fi
 
           # Commit any remaining changes
