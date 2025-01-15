@@ -154,19 +154,7 @@ jobs:
       contents: write
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT }}
-          fetch-depth: 0
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./downloads
-          merge-multiple: true
-
-      - name: Check disk space
+      - name: Clean workspace before checkout
         run: |
           echo "Checking disk space..."
           df -h
@@ -178,39 +166,23 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           df -h
 
-      - name: Move artifacts to root
-        run: |
-          # Check if downloads directory exists and has files
-          if [ ! -d "./downloads" ] || [ -z "$(ls -A ./downloads)" ]; then
-            echo "No artifacts to move or downloads directory doesn't exist"
-            exit 0
-          fi
+      - name: Minimal checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          sparse-checkout: |
+            range.json
+            empty_ranges.log
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
 
-          # Calculate required space
-          required_space=$(du -sb ./downloads | cut -f1)
-          available_space=$(df -B1 . | awk 'NR==2 {print $4}')
-          
-          if [ $required_space -gt $available_space ]; then
-            echo "Error: Not enough disk space. Required: $(($required_space/1024/1024))MB, Available: $(($available_space/1024/1024))MB"
-            exit 1
-          fi
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./downloads
+          merge-multiple: true
 
-          # Move files in smaller batches
-          find ./downloads -type f -print0 | while IFS= read -r -d '' file; do
-            target_dir="$(dirname "${file#./downloads/}")"
-            mkdir -p "./$target_dir"
-            cp "$file" "./$target_dir/" || echo "Failed to copy: $file"
-          done
-          
-          # Clean up downloads directory only if copy was successful
-          if [ $? -eq 0 ]; then
-            rm -rf ./downloads
-          else
-            echo "Warning: Some files may not have been copied successfully"
-            exit 1
-          fi
-
-      - name: Commit and push changes
+      - name: Process and commit changes in batches
         run: |
           git config user.name "${{ github.repository_owner }}"
           git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
@@ -227,23 +199,56 @@ jobs:
           next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
           next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
           echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
-          git add range.json
+          
+          # Stage range.json and empty_ranges.log first
+          git add range.json empty_ranges.log
 
-          # Add all downloaded images and empty ranges log
-          git add .
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
+          # Process downloaded files in smaller batches
+          if [ -d "./downloads" ]; then
+            cd downloads
+            
+            # Process files in batches of 100
+            find . -type f -print0 | while IFS= read -r -d '' file; do
+              # Check available space
+              available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
+              if [ "$available_space" -lt "500" ]; then
+                echo "Warning: Low disk space, committing current batch..."
+                cd ..
+                git commit -m "chore: partial commit of downloaded images"
+                git push
+                cd downloads
+              fi
+
+              # Create target directory and move file
+              target_dir="../$(dirname "${file#./}")"
+              mkdir -p "$target_dir"
+              mv "$file" "$target_dir/"
+              
+              # Stage the moved file
+              cd ..
+              git add "$target_dir/$(basename "$file")"
+              cd downloads
+            done
+            cd ..
           fi
-          
-          today=$(date +%Y-%m-%d)
-          if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
-            git commit -m "chore: download images for prefix ${{ needs.download-batch.outputs.prefix }} in ${today} from ids ${next_start} to ${next_end}"
-          else
-            git commit -m "log: no images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }}"
+
+          # Commit any remaining changes
+          if ! git diff --staged --quiet; then
+            today=$(date +%Y-%m-%d)
+            if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
+              git commit -m "chore: download images for prefix ${{ needs.download-batch.outputs.prefix }} in ${today} from ids ${next_start} to ${next_end}"
+            else
+              git commit -m "log: no images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }}"
+            fi
+            git push
           fi
-          git push
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf downloads
+          rm -rf .git
+          df -h
 
       - name: Delete old artifacts
         env:
