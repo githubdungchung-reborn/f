@@ -170,11 +170,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
+          # Include image directories in sparse checkout
           sparse-checkout: |
             range.json
             empty_ranges.log
+            images_*
           sparse-checkout-cone-mode: false
           fetch-depth: 1
+
+      - name: Configure Git for sparse checkout
+        run: |
+          git config core.sparseCheckout true
+          echo "range.json" >> .git/info/sparse-checkout
+          echo "empty_ranges.log" >> .git/info/sparse-checkout
+          echo "images_*" >> .git/info/sparse-checkout
+          git config advice.updateSparsePath false
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -205,19 +215,27 @@ jobs:
 
           # Process downloaded files in smaller batches
           if [ -d "./downloads" ]; then
-            # Process files in batches of 100
-            find ./downloads -type f -print0 | while IFS= read -r -d '' file; do
+            # Create a list of files to process
+            find ./downloads -type f > files_to_process.txt
+            
+            # Process files in batches
+            batch_size=50
+            total_files=$(wc -l < files_to_process.txt)
+            current_file=0
+            
+            while IFS= read -r file; do
               # Check available space
               available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
               if [ "$available_space" -lt "500" ]; then
                 echo "Warning: Low disk space, committing current batch..."
-                git commit -m "chore: partial commit of downloaded images"
-                git push
+                if ! git diff --staged --quiet; then
+                  git commit -m "chore: partial commit of downloaded images (disk space low)"
+                  git push
+                fi
               fi
 
               # Get the relative path within downloads directory
               rel_path="${file#./downloads/}"
-              # Create target directory relative to current directory
               target_dir="$(dirname "$rel_path")"
               mkdir -p "$target_dir"
               
@@ -225,9 +243,21 @@ jobs:
               cp "$file" "$target_dir/"
               rm "$file"
               
-              # Stage the moved file
-              git add "$target_dir/$(basename "$file")"
-            done
+              # Stage the moved file with sparse checkout option
+              git add --sparse "$target_dir/$(basename "$file")"
+              
+              # Increment counter and commit if batch size reached
+              current_file=$((current_file + 1))
+              if [ $((current_file % batch_size)) -eq 0 ]; then
+                echo "Processing files $current_file of $total_files"
+                if ! git diff --staged --quiet; then
+                  git commit -m "chore: batch commit of images ($current_file of $total_files)"
+                  git push
+                fi
+              fi
+            done < files_to_process.txt
+            
+            rm files_to_process.txt
           fi
 
           # Commit any remaining changes
