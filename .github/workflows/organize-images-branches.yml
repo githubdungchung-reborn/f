@@ -38,9 +38,6 @@ jobs:
           sudo apt-get clean
           sudo apt-get autoremove -y
           sudo rm -rf /var/lib/apt/lists/*
-          sudo npm cache clean --force || true
-          sudo yarn cache clean || true
-          
           # Clear temp and log directories
           sudo rm -rf /tmp/*
           sudo find /var/log -type f -exec rm -f {} \;
@@ -144,6 +141,11 @@ jobs:
           git add .
           git commit -m "feat: organize images for range ${{ steps.branch.outputs.branch_name }}"
 
+      - name: Push to branch
+        run: |
+          echo "Pushing to branch: ${{ steps.branch.outputs.branch_name }}"
+          git push origin "${{ steps.branch.outputs.branch_name }}"
+
       - name: Cleanup before switching back
         run: |
           echo "Performing disk space cleanup..."
@@ -163,19 +165,9 @@ jobs:
           sudo apt-get clean
           sudo apt-get autoremove -y
           sudo rm -rf /var/lib/apt/lists/*
-          sudo npm cache clean --force || true
-          sudo yarn cache clean || true
-          
           # Clear temp and log directories
           sudo rm -rf /tmp/*
           sudo find /var/log -type f -exec rm -f {} \;
-          
-          # Clear system caches
-          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
-          
-          # Clean git objects
-          git gc --aggressive --prune=now
-          
           echo "Available disk space after cleanup:"
           df -h
 
@@ -217,9 +209,6 @@ jobs:
           
           # Remove all content except .git
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          
-          # Clean git objects
-          git gc --aggressive --prune=now
           
           # Clear system caches
           sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
