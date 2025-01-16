@@ -76,17 +76,46 @@ jobs:
       - name: Find matching image folders
         id: find-folders
         run: |
-          # Clean up any temporary files before searching
-          find . -type f -name "*.tmp" -delete
+          # Monitor system resources
+          free -h
+          df -h
           
-          FOLDERS=$(find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}")
-          if [ -z "$FOLDERS" ]; then
+          # Clean up any temporary files and clear cache
+          find . -type f -name "*.tmp" -delete
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+          
+          # Use a more efficient find command with timeout protection
+          echo "Searching for matching folders..."
+          timeout 300 find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}" > matched_folders.txt || {
+            echo "Find command timed out after 5 minutes"
+            exit 1
+          }
+          
+          # Check if any folders were found
+          if [ ! -s matched_folders.txt ]; then
             echo "No matching folders found"
+            rm -f matched_folders.txt
             exit 1
           fi
+          
+          # Process the results in a controlled manner
           echo "folders<<EOF" >> $GITHUB_OUTPUT
-          echo "$FOLDERS" >> $GITHUB_OUTPUT
+          while IFS= read -r folder; do
+            # Verify folder exists and is accessible
+            if [ -d "$folder" ] && [ -r "$folder" ]; then
+              echo "$folder" >> $GITHUB_OUTPUT
+              echo "Found valid folder: $folder"
+            fi
+          done < matched_folders.txt
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Cleanup
+          rm -f matched_folders.txt
+          
+          # Show resource status after completion
+          echo "Resource status after folder search:"
+          free -h
+          df -h
 
       - name: Create and switch to range branch
         run: |
