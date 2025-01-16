@@ -11,6 +11,8 @@ on:
         description: "End of range (optional)"
         required: false
         type: string
+  schedule:
+    - cron: '*/40 * * * *'
 
 jobs:
   organize-images:
