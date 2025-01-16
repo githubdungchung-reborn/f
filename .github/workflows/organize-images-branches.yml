@@ -22,6 +22,8 @@ jobs:
       - name: Initial disk space cleanup
         run: |
           echo "Performing initial system cleanup..."
+          df -h
+          
           # Remove unnecessary large packages
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -29,11 +31,15 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/lib/node_modules
           
           # Clear package manager caches
           sudo apt-get clean
           sudo apt-get autoremove -y
           sudo rm -rf /var/lib/apt/lists/*
+          sudo npm cache clean --force || true
+          sudo yarn cache clean || true
           
           # Clear temp and log directories
           sudo rm -rf /tmp/*
@@ -46,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
-          fetch-depth: 1  # Reduce git history to save space
+          fetch-depth: 1
           sparse-checkout: |
             organize_range.json
             images_*
@@ -73,92 +79,74 @@ jobs:
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "Branch name will be: $BRANCH_NAME"
 
-      - name: Find matching image folders
+      - name: Find and clean non-matching folders
         id: find-folders
         run: |
-          # Monitor system resources
-          free -h
+          echo "Current disk space:"
           df -h
           
-          # Clean up any temporary files and clear cache
-          find . -type f -name "*.tmp" -delete
-          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+          # Find matching folders first
+          echo "Finding matching folders..."
+          find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}" > matched_folders.txt
           
-          # Use a more efficient find command with timeout protection
-          echo "Searching for matching folders..."
-          timeout 300 find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}" > matched_folders.txt || {
-            echo "Find command timed out after 5 minutes"
-            exit 1
-          }
-          
-          # Check if any folders were found
           if [ ! -s matched_folders.txt ]; then
             echo "No matching folders found"
             rm -f matched_folders.txt
             exit 1
           fi
           
-          # Process the results in a controlled manner
+          # Save matching folders to output
           echo "folders<<EOF" >> $GITHUB_OUTPUT
           while IFS= read -r folder; do
-            # Verify folder exists and is accessible
             if [ -d "$folder" ] && [ -r "$folder" ]; then
               echo "$folder" >> $GITHUB_OUTPUT
-              echo "Found valid folder: $folder"
+              echo "Found matching folder: $folder"
             fi
           done < matched_folders.txt
           echo "EOF" >> $GITHUB_OUTPUT
           
-          # Cleanup
+          # Delete all non-matching folders except .git
+          echo "Removing non-matching folders..."
+          find . -maxdepth 1 -type d ! -name '.*' ! -name 'matched_folders.txt' | while read -r dir; do
+            if ! grep -q "^$dir\$" matched_folders.txt; then
+              echo "Removing non-matching directory: $dir"
+              rm -rf "$dir"
+            fi
+          done
+          
           rm -f matched_folders.txt
           
-          # Show resource status after completion
-          echo "Resource status after folder search:"
-          free -h
+          echo "Disk space after cleanup:"
           df -h
 
       - name: Create and switch to range branch
         run: |
-          # Clean up before branch operations
-          git gc --prune=now
+          echo "Creating branch: ${{ steps.branch.outputs.branch_name }}"
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
           
-          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
-          git checkout -b "$BRANCH_NAME"
+          # Create new branch
+          git checkout -b "${{ steps.branch.outputs.branch_name }}"
           
-          # Clean the branch
+          # Clean the branch except matching folders
           git rm -rf .
           git clean -fd
-
-      - name: Copy matching folders to branch
-        run: |
-          # Process folders in smaller batches to manage memory
+          
+          # Add matching folders back
           while IFS= read -r folder; do
-            folder="${folder#./}"
             if [ ! -z "$folder" ]; then
-              echo "Processing folder: $folder"
-              
-              # Check available space
-              available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
-              if [ "$available_space" -lt "1000" ]; then
-                echo "Low disk space, performing cleanup..."
-                git gc --prune=now
-                sudo rm -rf /tmp/*
-              fi
-              
+              echo "Adding folder to branch: $folder"
               git checkout main -- "$folder"
             fi
           done <<< "${{ steps.find-folders.outputs.folders }}"
           
+          # Commit changes
           git add .
-          
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: organize images for range ${{ steps.branch.outputs.branch_name }}"
-          fi
+          git commit -m "feat: organize images for range ${{ steps.branch.outputs.branch_name }}"
 
-      - name: Push range branch
+      - name: Push to branch
         run: |
-          # Compress objects before push
-          git gc --aggressive --prune=now
+          echo "Pushing to branch: ${{ steps.branch.outputs.branch_name }}"
           git push origin "${{ steps.branch.outputs.branch_name }}"
 
       - name: Switch back to main and cleanup
@@ -195,11 +183,16 @@ jobs:
       - name: Final cleanup
         if: always()
         run: |
+          echo "Performing final cleanup..."
+          
+          # Remove all content except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          
           # Clean git objects
           git gc --aggressive --prune=now
           
-          # Remove temporary files
-          rm -rf /tmp/*
+          # Clear system caches
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
           
           echo "Final disk space status:"
           df -h 
