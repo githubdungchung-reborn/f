@@ -191,6 +191,8 @@ jobs:
         with:
           path: ./downloads
           merge-multiple: true
+          # Add pattern to download only current batch artifacts
+          pattern: batch-*-${{ needs.download-batch.outputs.start_range }}-${{ needs.download-batch.outputs.end_range }}
 
       - name: Process and commit changes in batches
         run: |
@@ -213,51 +215,98 @@ jobs:
           # Stage range.json and empty_ranges.log first
           git add range.json empty_ranges.log
 
-          # Process downloaded files in smaller batches
+          # Process downloaded files in smaller batches with improved space management
           if [ -d "./downloads" ]; then
             # Create a list of files to process
             find ./downloads -type f > files_to_process.txt
             
-            # Process files in batches
-            batch_size=50
+            # Process files in smaller batches
+            batch_size=25  # Reduced batch size
             total_files=$(wc -l < files_to_process.txt)
             current_file=0
             
+            # Create temporary directory for processing
+            mkdir -p ./temp_processing
+            
             while IFS= read -r file; do
-              # Check available space
+              # Check available space and clean up if needed
               available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
-              if [ "$available_space" -lt "500" ]; then
-                echo "Warning: Low disk space, committing current batch..."
+              if [ "$available_space" -lt "1000" ]; then
+                echo "Low disk space detected, performing cleanup..."
+                rm -rf ./temp_processing/*
+                
+                # Force commit current changes if any
                 if ! git diff --staged --quiet; then
                   git commit -m "chore: partial commit of downloaded images (disk space low)"
                   git push
                 fi
+                
+                # Clean up runner space
+                sudo rm -rf /usr/share/dotnet
+                sudo rm -rf /usr/local/lib/android
+                sudo rm -rf /opt/ghc
+                sudo rm -rf "/usr/local/share/boost"
+                sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+                sudo rm -rf /usr/local/share/powershell
+                sudo rm -rf /usr/local/share/chromium
+                sudo rm -rf /usr/local/lib/node_modules
+                sudo apt-get clean
+                sudo rm -rf /var/lib/apt/lists/*
+                
+                # Clear GitHub runner diagnostic logs
+                sudo find /home/runner/runners -name "*.log" -type f -delete
               fi
 
-              # Get the relative path within downloads directory
+              # Process file in temporary directory
               rel_path="${file#./downloads/}"
-              target_dir="$(dirname "$rel_path")"
+              target_dir="./temp_processing/$(dirname "$rel_path")"
               mkdir -p "$target_dir"
               
-              # Move file to target directory
+              # Move file to temporary processing directory
               cp "$file" "$target_dir/"
               rm "$file"
               
-              # Stage the moved file with sparse checkout option
-              git add --sparse "$target_dir/$(basename "$file")"
-              
-              # Increment counter and commit if batch size reached
+              # Stage and commit in smaller batches
               current_file=$((current_file + 1))
               if [ $((current_file % batch_size)) -eq 0 ]; then
                 echo "Processing files $current_file of $total_files"
+                
+                # Move files from temp to final location
+                find ./temp_processing -type f -exec bash -c '
+                  for file; do
+                    target_dir="$(dirname "${file#./temp_processing/}")"
+                    mkdir -p "$target_dir"
+                    mv "$file" "$target_dir/"
+                    git add --sparse "$target_dir/$(basename "$file")"
+                  done
+                ' bash {} +
+                
+                # Commit current batch
                 if ! git diff --staged --quiet; then
                   git commit -m "chore: batch commit of images ($current_file of $total_files)"
                   git push
                 fi
+                
+                # Clean up temporary directory
+                rm -rf ./temp_processing/*
               fi
             done < files_to_process.txt
             
-            rm files_to_process.txt
+            # Process remaining files
+            if [ -d "./temp_processing" ]; then
+              find ./temp_processing -type f -exec bash -c '
+                for file; do
+                  target_dir="$(dirname "${file#./temp_processing/}")"
+                  mkdir -p "$target_dir"
+                  mv "$file" "$target_dir/"
+                  git add --sparse "$target_dir/$(basename "$file")"
+                done
+              ' bash {} +
+            fi
+            
+            # Clean up
+            rm -rf ./temp_processing
+            rm -f files_to_process.txt
           fi
 
           # Commit any remaining changes
