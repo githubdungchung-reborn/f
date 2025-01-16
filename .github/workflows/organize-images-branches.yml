@@ -1,0 +1,123 @@
+name: Organize Images into Range Branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_range:
+        description: "Start of range (optional)"
+        required: false
+        type: string
+      end_range:
+        description: "End of range (optional)"
+        required: false
+        type: string
+
+jobs:
+  organize-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0
+          sparse-checkout: |
+            organize_range.json
+            images_*
+          sparse-checkout-cone-mode: false
+
+      - name: Load or initialize range
+        id: load-range
+        run: |
+          if [ -f organize_range.json ]; then
+            start=$(jq -r '.start' organize_range.json)
+            end=$(jq -r '.end' organize_range.json)
+          else
+            start="${{ inputs.start_range || '1000' }}"
+            end="${{ inputs.end_range || '1500' }}"
+            echo "{\"start\": $start, \"end\": $end}" > organize_range.json
+          fi
+          echo "start=$start" >> $GITHUB_OUTPUT
+          echo "end=$end" >> $GITHUB_OUTPUT
+
+      - name: Set up branch name
+        id: branch
+        run: |
+          BRANCH_NAME="${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Branch name will be: $BRANCH_NAME"
+
+      - name: Find matching image folders
+        id: find-folders
+        run: |
+          FOLDERS=$(find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}")
+          if [ -z "$FOLDERS" ]; then
+            echo "No matching folders found"
+            exit 1
+          fi
+          echo "folders<<EOF" >> $GITHUB_OUTPUT
+          echo "$FOLDERS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create and switch to range branch
+        run: |
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Clean the branch to ensure it only contains the relevant folders
+          git rm -rf .
+          git clean -fd
+
+      - name: Copy matching folders to branch
+        run: |
+          # Checkout the files from main without switching branches
+          while IFS= read -r folder; do
+            folder="${folder#./}"
+            if [ ! -z "$folder" ]; then
+              echo "Processing folder: $folder"
+              git checkout main -- "$folder"
+            fi
+          done <<< "${{ steps.find-folders.outputs.folders }}"
+          
+          # Stage the copied folders
+          git add .
+          
+          # Commit if there are changes
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: organize images for range ${{ steps.branch.outputs.branch_name }}"
+          fi
+
+      - name: Push range branch
+        run: |
+          git push origin "${{ steps.branch.outputs.branch_name }}"
+
+      - name: Switch back to main and remove folders
+        run: |
+          git checkout main
+          
+          # Remove the folders from main
+          while IFS= read -r folder; do
+            folder="${folder#./}"
+            if [ ! -z "$folder" ]; then
+              echo "Removing folder from main: $folder"
+              rm -rf "$folder"
+              git add -u "$folder"
+            fi
+          done <<< "${{ steps.find-folders.outputs.folders }}"
+          
+          # Update organize_range.json for next run
+          next_start=$((${{ steps.load-range.outputs.end }} + 1))
+          next_end=$((${{ steps.load-range.outputs.end }} + 501))
+          echo "{\"start\": $next_start, \"end\": $next_end}" > organize_range.json
+          
+          # Stage and commit changes
+          git add organize_range.json
+          
+          # Commit and push the removal and range update
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: remove organized images for range ${{ steps.branch.outputs.branch_name }} and update range"
+            git push origin main
+          fi 
