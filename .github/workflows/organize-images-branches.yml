@@ -11,14 +11,13 @@ on:
         description: "End of range (optional)"
         required: false
         type: string
-  schedule:
-    - cron: '*/30 * * * *'
 
 jobs:
   organize-images:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     
     steps:
       - name: Initial disk space cleanup
@@ -105,14 +104,18 @@ jobs:
           done < matched_folders.txt
           echo "EOF" >> $GITHUB_OUTPUT
           
-          # Remove everything except matching folders and .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' | while read -r item; do
-            if ! grep -q "^$item\$" matched_folders.txt; then
-              echo "Removing: $item"
-              rm -rf "$item"
-            fi
-          done
+          # First, save matching folders to a temporary location
+          mkdir -p /tmp/matching_folders_backup
+          while IFS= read -r folder; do
+            cp -r "$folder" /tmp/matching_folders_backup/
+          done < matched_folders.txt
           
+          # Remove everything in current directory except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} \;
+          
+          # Move matching folders back
+          cp -r /tmp/matching_folders_backup/* .
+          rm -rf /tmp/matching_folders_backup
           rm -f matched_folders.txt
           
           echo "Disk space after cleanup:"
@@ -173,47 +176,15 @@ jobs:
           echo "Available disk space after cleanup:"
           df -h
 
-      - name: Switch back to main and cleanup
+      - name: Re-trigger workflow
+        if: success()
         run: |
-          git checkout main
+          # Wait for 2 minutes to allow for system cooldown
+          sleep 120
           
-          # Remove folders in batches
-          while IFS= read -r folder; do
-            folder="${folder#./}"
-            if [ ! -z "$folder" ]; then
-              echo "Removing folder from main: $folder"
-              rm -rf "$folder"
-              git add -u "$folder"
-              
-              # Periodic cleanup
-              if [ $((RANDOM % 5)) -eq 0 ]; then
-                git gc --prune=now
-              fi
-            fi
-          done <<< "${{ steps.find-folders.outputs.folders }}"
-          
-          # Update range for next run
-          next_start=$((${{ steps.load-range.outputs.end }} + 1))
-          next_end=$((${{ steps.load-range.outputs.end }} + 501))
-          echo "{\"start\": $next_start, \"end\": $next_end}" > organize_range.json
-          
-          git add organize_range.json
-          
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: remove organized images for range ${{ steps.branch.outputs.branch_name }} and update range"
-            git push origin main
-          fi
-
-      - name: Final cleanup
-        if: always()
-        run: |
-          echo "Performing final cleanup..."
-          
-          # Remove all content except .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          
-          # Clear system caches
-          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
-          
-          echo "Final disk space status:"
-          df -h 
+          # Trigger the workflow again using GitHub CLI
+          gh workflow run organize-images-branches.yml \
+            --ref main \
+            --repo ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }} 
