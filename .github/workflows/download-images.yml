@@ -11,8 +11,8 @@ on:
         description: "End range (optional)"
         required: false
         type: string
-  # schedule:
-  #   - cron: "0 * * * *"  # Runs at the start of every hour
+  schedule:
+    - cron: "0 * * * *"  # Runs at the start of every hour
 
 jobs:
   prepare-matrix:
@@ -300,3 +300,16 @@ jobs:
               curl -X DELETE -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/actions/artifacts/$id"
             fi
           done
+
+      - name: Re-trigger workflow
+        if: success()
+        run: |
+          # Wait for 1 minutes to allow for system cooldown
+          sleep 60
+          
+          # Trigger the workflow again using GitHub CLI
+          gh workflow run organize-images-branches.yml \
+            --ref main \
+            --repo ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}

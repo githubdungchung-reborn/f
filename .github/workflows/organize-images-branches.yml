@@ -238,16 +238,3 @@ jobs:
             # Final garbage collection after all operations
             git gc --prune=now --quiet
           fi
-
-      - name: Re-trigger workflow
-        if: success()
-        run: |
-          # Wait for 1 minutes to allow for system cooldown
-          sleep 60
-          
-          # Trigger the workflow again using GitHub CLI
-          gh workflow run organize-images-branches.yml \
-            --ref main \
-            --repo ${{ github.repository }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
