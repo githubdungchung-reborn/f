@@ -176,6 +176,39 @@ jobs:
           echo "Available disk space after cleanup:"
           df -h
 
+      - name: Final cleanup
+        if: always()
+        run: |
+          echo "Performing final cleanup..."
+          
+          # Remove all content except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          
+          # Clear system caches
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+          
+          echo "Final disk space status:"
+          df -h
+
+      - name: Update range file
+        if: success()
+        run: |
+          git checkout main
+          
+          # Update range for next run
+          next_start=$((${{ steps.load-range.outputs.end }} + 1))
+          next_end=$((${{ steps.load-range.outputs.end }} + 501))
+          echo "{\"start\": $next_start, \"end\": $next_end}" > organize_range.json
+          
+          git add organize_range.json
+          
+          if ! git diff --cached --quiet; then
+            git config user.name "${{ github.repository_owner }}"
+            git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+            git commit -m "chore: update range to $next_start-$next_end"
+            git push origin main
+          fi
+
       - name: Re-trigger workflow
         if: success()
         run: |
@@ -187,4 +220,4 @@ jobs:
             --ref main \
             --repo ${{ github.repository }}
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT }} 
+          GITHUB_TOKEN: ${{ secrets.PAT }}
