@@ -195,6 +195,33 @@ jobs:
         run: |
           git checkout main
           
+          # Initialize counter for batch processing
+          counter=0
+          batch_size=10
+          
+          # Remove folders in batches
+          while IFS= read -r folder; do
+            folder="${folder#./}"
+            if [ ! -z "$folder" ]; then
+              echo "Removing folder from main: $folder"
+              rm -rf "$folder"
+              git add -u "$folder"
+              
+              # Increment counter
+              counter=$((counter + 1))
+              
+              # Perform cleanup every batch_size folders
+              if [ $((counter % batch_size)) -eq 0 ]; then
+                echo "Performing periodic commit for batch..."
+                git commit -m "chore: remove batch of organized images for range ${{ steps.branch.outputs.branch_name }}"
+                git push origin main
+                
+                # Perform light garbage collection
+                git gc --auto --quiet
+              fi
+            fi
+          done <<< "${{ steps.find-folders.outputs.folders }}"
+          
           # Update range for next run
           next_start=$((${{ steps.load-range.outputs.end }} + 1))
           next_end=$((${{ steps.load-range.outputs.end }} + 501))
@@ -205,15 +232,18 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name "${{ github.repository_owner }}"
             git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
-            git commit -m "chore: update range to $next_start-$next_end"
+            git commit -m "chore: remove remaining images and update range to $next_start-$next_end"
             git push origin main
+            
+            # Final garbage collection after all operations
+            git gc --prune=now --quiet
           fi
 
       - name: Re-trigger workflow
         if: success()
         run: |
-          # Wait for 2 minutes to allow for system cooldown
-          sleep 120
+          # Wait for 1 minutes to allow for system cooldown
+          sleep 60
           
           # Trigger the workflow again using GitHub CLI
           gh workflow run organize-images-branches.yml \
