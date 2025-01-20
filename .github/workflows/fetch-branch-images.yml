@@ -1,0 +1,140 @@
+name: Fetch Branch Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_owner:
+        description: "Repository owner"
+        required: true
+        type: string
+      repo_name:
+        description: "Repository name"
+        required: true
+        type: string
+  schedule:
+    - cron: "0 */6 * * *"  # Run every 6 hours
+
+jobs:
+  fetch-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Initial disk space cleanup
+        run: |
+          echo "Performing initial system cleanup..."
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0  # Need full history to check branches
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run fetch branch images script
+        id: fetch-images
+        run: |
+          # Create output directory
+          mkdir -p image_urls
+          
+          # Set timestamp for unique filenames
+          timestamp=$(date +%Y%m%d_%H%M%S)
+          output_file="image_urls/branch_images_${timestamp}.txt"
+          
+          # Run the script
+          python fetch_branch_images.py \
+            "${{ github.event.inputs.repo_owner || github.repository_owner }}" \
+            "${{ github.event.inputs.repo_name || github.event.repository.name }}" \
+            "$output_file"
+          
+          # Check if output file was created and has content
+          if [ -f "$output_file" ] && [ -s "$output_file" ]; then
+            echo "has_results=true" >> $GITHUB_OUTPUT
+            echo "output_file=$output_file" >> $GITHUB_OUTPUT
+          else
+            echo "has_results=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Process logs
+        if: success()
+        run: |
+          # Create logs directory if it doesn't exist
+          mkdir -p logs
+          
+          # Move log files to logs directory
+          if [ -d "logs" ]; then
+            mv logs/failed_branches_*.log logs/ 2>/dev/null || true
+            mv logs/error_log_*.log logs/ 2>/dev/null || true
+          fi
+          
+          # Compress old logs if they exist
+          find logs -name "*.log" -mtime +7 -exec gzip {} \;
+
+      - name: Commit results
+        if: steps.fetch-images.outputs.has_results == 'true'
+        run: |
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+          
+          # Stage all new files
+          git add image_urls/
+          git add logs/
+          
+          # Get count of images found
+          image_count=$(wc -l < "${{ steps.fetch-images.outputs.output_file }}")
+          
+          # Commit changes
+          git commit -m "feat: add $image_count image URLs from branch scan
+          
+          - Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
+          - Images found: $image_count
+          - Output file: ${{ steps.fetch-images.outputs.output_file }}"
+          
+          git push
+
+      - name: Cleanup old files
+        if: always()
+        run: |
+          # Remove files older than 30 days
+          find image_urls -type f -mtime +30 -delete
+          find logs -type f -mtime +30 -delete
+          
+          # Compress files older than 7 days
+          find image_urls -type f -mtime +7 -exec gzip {} \;
+          find logs -type f -mtime +7 -exec gzip {} \;
+          
+          # Commit cleanup if needed
+          if ! git diff --quiet; then
+            git config user.name "${{ github.repository_owner }}"
+            git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+            git add -u
+            git commit -m "chore: cleanup old files"
+            git push
+          fi
+
+      - name: Upload logs as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-logs-${{ github.run_id }}
+          path: |
+            logs/
+            image_urls/
+          retention-days: 7 
