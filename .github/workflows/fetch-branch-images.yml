@@ -79,7 +79,6 @@ jobs:
           if [ -f "${{ steps.fetch-images.outputs.output_file }}" ]; then
             timestamp=$(date +%Y%m%d_%H%M%S)
             success_log="logs/success_images_${timestamp}.log"
-            echo "Successfully fetched and sorted images at $(date '+%Y-%m-%d %H:%M:%S'):" > "$success_log"
             cat "${{ steps.fetch-images.outputs.output_file }}" >> "$success_log"
             
             # Clean up old failed branch logs after successful retry
