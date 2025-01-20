@@ -149,6 +149,8 @@ jobs:
 
   commit-changes:
     needs: [prepare-matrix, download-batch]
+    # Add condition to skip this job if no images were found
+    if: needs.download-batch.outputs.has_images == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -187,12 +189,25 @@ jobs:
           git config advice.updateSparsePath false
 
       - name: Download all artifacts
+        id: download-artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           path: ./downloads
           merge-multiple: true
 
+      # Add check after download
+      - name: Check for downloaded artifacts
+        id: check-artifacts
+        run: |
+          if [ ! -d "./downloads" ] || [ -z "$(ls -A ./downloads)" ]; then
+            echo "No artifacts found to process. Stopping workflow."
+            exit 1
+          fi
+
+      # Add conditions to remaining steps
       - name: Process and commit changes in batches
+        if: steps.check-artifacts.outcome == 'success'
         run: |
           git config user.name "${{ github.repository_owner }}"
           git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
@@ -272,13 +287,14 @@ jobs:
           fi
 
       - name: Cleanup
-        if: always()
+        if: always() && steps.check-artifacts.outcome == 'success'
         run: |
           rm -rf downloads
           rm -rf .git
           df -h
 
       - name: Delete old artifacts
+        if: steps.check-artifacts.outcome == 'success'
         env:
           REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.PAT }}
@@ -302,7 +318,7 @@ jobs:
           done
 
       - name: Re-trigger workflow
-        if: success()
+        if: steps.check-artifacts.outcome == 'success'
         run: |
           # Wait for 1 minutes to allow for system cooldown
           sleep 60
