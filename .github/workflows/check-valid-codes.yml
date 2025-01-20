@@ -169,9 +169,22 @@ jobs:
           next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 1001))
           echo "{\"start\": $next_start, \"end\": $next_end}" > valid_codes_range.json
           
-          # Move downloaded files to their proper location
+          # Create valid_codes directory if it doesn't exist
+          mkdir -p valid_codes
+          
+          # Move downloaded files to their proper location with error handling
           if [ -d "./downloads" ]; then
-            cp -r ./downloads/valid_codes/* valid_codes/
+            # First check if the expected structure exists
+            if [ -d "./downloads/valid_codes" ]; then
+              echo "Found valid_codes directory in downloads, copying contents..."
+              cp -r ./downloads/valid_codes/* valid_codes/ || echo "No files to copy from valid_codes directory"
+            else
+              # Try to find and copy any log files directly in downloads
+              echo "Looking for log files directly in downloads directory..."
+              find ./downloads -type f -name "valid_codes_*.log" -exec cp {} valid_codes/ \; || echo "No log files found in downloads"
+            fi
+          else
+            echo "No downloads directory found, skipping file copy"
           fi
           
           # Stage all changes
@@ -182,6 +195,8 @@ jobs:
           if ! git diff --staged --quiet; then
             git commit -m "chore: update valid codes (${next_start} to ${next_end})"
             git push
+          else
+            echo "No changes to commit"
           fi
 
       - name: Cleanup
