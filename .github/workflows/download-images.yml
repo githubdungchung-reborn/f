@@ -235,16 +235,32 @@ jobs:
             echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }} with prefix ${{ needs.download-batch.outputs.prefix }}" >> empty_ranges.log
           fi
 
-          # Update range.json for next run
-          next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
-          next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
+          # Update range.json based on whether images were found
+          if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
+            # If images were found, increase the range as before
+            next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
+            next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
+          else
+            # If no images were found, decrease the range by 501
+            current_start=${{ needs.prepare-matrix.outputs.total_end }}
+            next_start=$((current_start - 501))
+            next_end=$current_start
+            
+            # Ensure we don't go below 1
+            if [ $next_start -lt 1 ]; then
+              next_start=1
+              next_end=501
+            fi
+          fi
+          
           echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
+          echo "Updated range.json to start=$next_start, end=$next_end"
           
           # Stage range.json and empty_ranges.log first
           git add range.json empty_ranges.log
 
           # Process downloaded files in smaller batches
-          if [ -d "./downloads" ]; then
+          if [ -d "./downloads" ] && [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
             # Create a list of files to process
             find ./downloads -type f > files_to_process.txt
             
@@ -296,7 +312,7 @@ jobs:
             if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
               git commit -m "chore: download images for prefix ${{ needs.download-batch.outputs.prefix }} in ${today} from ids ${next_start} to ${next_end}"
             else
-              git commit -m "log: no images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }}"
+              git commit -m "log: no images found in range ${{ needs.download-batch.outputs.start_range }} to ${{ needs.download-batch.outputs.end_range }}, decreasing range to ${next_start}-${next_end}"
             fi
             git push
           fi
