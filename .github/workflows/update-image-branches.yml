@@ -91,23 +91,35 @@ jobs:
         run: |
           echo "Finding matching folders..."
           
-          # Find and save matching folders
-          echo "folders<<EOF" >> $GITHUB_OUTPUT
-          find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}" | while read -r folder; do
-            if [ -d "$folder" ] && [ -r "$folder" ]; then
-              echo "$folder" >> $GITHUB_OUTPUT
-              echo "Found matching folder: $folder"
-            fi
-          done
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          # Backup matching folders
+          # Create backup directory
           mkdir -p /tmp/matching_folders_backup
+          
+          # Find matching folders and copy them
+          found_folders=false
           while IFS= read -r folder; do
-            if [ ! -z "$folder" ]; then
-              cp -r "$folder" /tmp/matching_folders_backup/
+            if [ -d "$folder" ] && [ -r "$folder" ]; then
+              echo "Found matching folder: $folder"
+              cp -r "$folder"/* /tmp/matching_folders_backup/ 2>/dev/null || true
+              echo "$folder" >> /tmp/matched_folders.txt
+              found_folders=true
             fi
-          done <<< "$(find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}")"
+          done < <(find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}")
+          
+          if [ "$found_folders" = false ]; then
+            echo "No matching folders found"
+            exit 1
+          fi
+          
+          # Save matching folders to output
+          if [ -f /tmp/matched_folders.txt ]; then
+            echo "folders<<EOF" >> $GITHUB_OUTPUT
+            cat /tmp/matched_folders.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+          
+          # Verify backup contents
+          echo "Checking backup contents:"
+          ls -la /tmp/matching_folders_backup/
 
       - name: Update existing branch
         if: steps.branch.outputs.branch_exists == 'true'
@@ -116,14 +128,36 @@ jobs:
           
           # Fetch and checkout the target branch
           git fetch origin "${{ steps.branch.outputs.branch_name }}"
-          git checkout "${{ steps.branch.outputs.branch_name }}"
+          git checkout -b "${{ steps.branch.outputs.branch_name }}" --track "origin/${{ steps.branch.outputs.branch_name }}"
           
           # Move new files from backup
-          if [ -d "/tmp/matching_folders_backup" ]; then
+          if [ -d "/tmp/matching_folders_backup" ] && [ "$(ls -A /tmp/matching_folders_backup)" ]; then
             echo "Adding new files to branch..."
-            cp -r /tmp/matching_folders_backup/* .
+            
+            # Create target directories if they don't exist
+            for dir in /tmp/matching_folders_backup/*/; do
+              if [ -d "$dir" ]; then
+                base_dir=$(basename "$dir")
+                mkdir -p "$base_dir"
+              fi
+            done
+            
+            # Copy files with error handling
+            cp -rv /tmp/matching_folders_backup/* . || {
+              echo "Error copying files. Contents of backup directory:"
+              ls -la /tmp/matching_folders_backup/
+              echo "Contents of current directory:"
+              ls -la
+              exit 1
+            }
+            
+            echo "Files copied successfully. Current directory contents:"
+            ls -la
           else
-            echo "No new files to add"
+            echo "No new files found in backup directory to add"
+            echo "Backup directory contents:"
+            ls -la /tmp/matching_folders_backup/
+            exit 1
           fi
           
           # Stage all changes
@@ -138,6 +172,7 @@ jobs:
             echo "Successfully updated branch with new images"
           else
             echo "No changes to commit"
+            exit 1
           fi
 
       - name: Cleanup backup
