@@ -99,8 +99,13 @@ jobs:
       - name: Process batch
         id: check-downloads
         run: |
+          # Add initial debug output
+          echo "Starting batch processing..."
+          
           # Check available space before processing
           available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
+          echo "Available space: ${available_space}MB"
+          
           if [ "$available_space" -lt "1000" ]; then
             echo "Error: Insufficient disk space (less than 1GB available)"
             exit 1
@@ -115,21 +120,26 @@ jobs:
           
           # Check disk space after download
           available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
-          if [ "$available_space" -lt "500" ]; then
-            echo "Warning: Low disk space after download (less than 500MB available)"
-          fi
+          echo "Available space after download: ${available_space}MB"
           
           # Check if any images were downloaded
-          image_count=$(find "$folder" -name "*.jpg" | wc -l)
+          image_count=$(find "$folder" -type f -name "*.jpg" | wc -l)
+          echo "Number of images found: $image_count"
+          
           if [ "$image_count" -eq 0 ]; then
             echo "No images downloaded in this batch"
-            echo "has_images=false" >> $GITHUB_OUTPUT
+            echo "has_images=false" >> "$GITHUB_OUTPUT"
             echo "$(date '+%Y-%m-%d %H:%M:%S') - No images found in range ${{ matrix.range.start }} to ${{ matrix.range.end }} with prefix ${{ matrix.range.prefix }}" >> empty_ranges.log
           else
-            echo "has_images=true" >> $GITHUB_OUTPUT
+            echo "Images found in this batch"
+            echo "has_images=true" >> "$GITHUB_OUTPUT"
           fi
           
-          echo "folder_name=$folder" >> $GITHUB_OUTPUT
+          # Debug output
+          echo "Content of GITHUB_OUTPUT:"
+          cat "$GITHUB_OUTPUT"
+          
+          echo "folder_name=$folder" >> "$GITHUB_OUTPUT"
 
       - name: Upload batch artifacts
         if: steps.check-downloads.outputs.has_images == 'true'
@@ -146,6 +156,11 @@ jobs:
         run: |
           rm -rf images_*
           df -h
+
+      - name: Debug outputs
+        run: |
+          echo "has_images: ${{ steps.check-downloads.outputs.has_images }}"
+          echo "folder_name: ${{ steps.check-downloads.outputs.folder_name }}"
 
   commit-changes:
     needs: [prepare-matrix, download-batch]

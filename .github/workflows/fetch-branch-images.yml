@@ -66,24 +66,17 @@ jobs:
       - name: Process logs
         if: success()
         run: |
+          # Remove all existing logs
+          rm -rf logs/*
+          
           # Create logs directory if it doesn't exist
           mkdir -p logs
-          
-          # Move log files to logs directory
-          if [ -d "logs" ]; then
-            mv logs/failed_branches_*.log logs/ 2>/dev/null || true
-            mv logs/error_log_*.log logs/ 2>/dev/null || true
-          fi
           
           # Create success log with sorted image links
           if [ -f "${{ steps.fetch-images.outputs.output_file }}" ]; then
             timestamp=$(date +%Y%m%d_%H%M%S)
             success_log="logs/success_images_${timestamp}.log"
             cat "${{ steps.fetch-images.outputs.output_file }}" >> "$success_log"
-            
-            # Clean up old failed branch logs after successful retry
-            find logs -name "failed_branches_*.log" -type f -delete
-            find logs -name "error_log_*.log" -type f -delete
           fi
           
           # Compress logs older than 7 days
