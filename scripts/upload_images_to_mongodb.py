@@ -54,13 +54,13 @@ class MongoDBUploader:
                     if not line.strip():
                         continue
                         
-                    # Extract URL from log line
-                    parts = line.strip().split('|')
-                    if len(parts) != 2:
-                        print(f"Invalid log line format: {line.strip()}")
+                    # Use the entire line as URL after stripping whitespace
+                    url = line.strip()
+                    
+                    # Skip if URL is empty
+                    if not url:
                         continue
                         
-                    url = parts[1]
                     metadata = self.parse_image_url(url)
                     
                     # Prepare update operation
