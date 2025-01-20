@@ -11,8 +11,6 @@ on:
         description: "End range (optional)"
         required: false
         type: string
-  schedule:
-    - cron: "0 * * * *"  # Runs at the start of every hour
 
 jobs:
   prepare-matrix:
