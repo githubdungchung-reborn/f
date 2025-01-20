@@ -1,16 +1,7 @@
 name: Fetch Branch Images
 
 on:
-  workflow_dispatch:
-    inputs:
-      repo_owner:
-        description: "Repository owner"
-        required: true
-        type: string
-      repo_name:
-        description: "Repository name"
-        required: true
-        type: string
+  workflow_dispatch:  # Keep manual trigger without inputs
   schedule:
     - cron: "0 */6 * * *"  # Run every 6 hours
 
@@ -58,10 +49,10 @@ jobs:
           timestamp=$(date +%Y%m%d_%H%M%S)
           output_file="image_urls/branch_images_${timestamp}.txt"
           
-          # Run the script
+          # Run the script with current repo owner and name from github context
           python fetch_branch_images.py \
-            "${{ github.event.inputs.repo_owner || github.repository_owner }}" \
-            "${{ github.event.inputs.repo_name || github.event.repository.name }}" \
+            "${{ github.repository_owner }}" \
+            "${{ github.event.repository.name }}" \
             "$output_file"
           
           # Check if output file was created and has content
@@ -84,6 +75,14 @@ jobs:
             mv logs/error_log_*.log logs/ 2>/dev/null || true
           fi
           
+          # Create success log with sorted image links
+          if [ -f "${{ steps.fetch-images.outputs.output_file }}" ]; then
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            success_log="logs/success_images_${timestamp}.log"
+            echo "Successfully fetched and sorted images at $(date '+%Y-%m-%d %H:%M:%S'):" > "$success_log"
+            cat "${{ steps.fetch-images.outputs.output_file }}" >> "$success_log"
+          fi
+          
           # Compress old logs if they exist
           find logs -name "*.log" -mtime +7 -exec gzip {} \;
 
@@ -101,11 +100,12 @@ jobs:
           image_count=$(wc -l < "${{ steps.fetch-images.outputs.output_file }}")
           
           # Commit changes
-          git commit -m "feat: add $image_count image URLs from branch scan
+          git commit -m "feat: add $image_count sorted image URLs from branch scan
           
           - Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
-          - Images found: $image_count
-          - Output file: ${{ steps.fetch-images.outputs.output_file }}"
+          - Images found and sorted: $image_count
+          - Output file: ${{ steps.fetch-images.outputs.output_file }}
+          - Success log: logs/success_images_*.log"
           
           git push
 
@@ -127,14 +127,4 @@ jobs:
             git add -u
             git commit -m "chore: cleanup old files"
             git push
-          fi
-
-      - name: Upload logs as artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fetch-logs-${{ github.run_id }}
-          path: |
-            logs/
-            image_urls/
-          retention-days: 7 
+          fi 

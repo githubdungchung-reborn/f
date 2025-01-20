@@ -113,6 +113,13 @@ def process_branch_images(branch_info: Dict[str, any], repo_owner: str, repo_nam
     
     return valid_images
 
+def extract_number_from_url(url: str) -> int:
+    """Extract the image number from the URL for sorting"""
+    match = re.search(r'[a-z](\d+)\.jpg$', url.lower())
+    if match:
+        return int(match.group(1))
+    return 0
+
 def main(repo_owner: str, repo_name: str, output_file: str):
     """Main function to process all branches and save results"""
     # Create logs directory if it doesn't exist
@@ -143,14 +150,21 @@ def main(repo_owner: str, repo_name: str, output_file: str):
         )
         results = list(executor.map(process_branch, branches))
     
-    # Flatten results and write to file
+    # Flatten results and sort images
     all_images = [url for branch_results in results for url in branch_results]
     
     if all_images:
+        # Sort images by alphabet and number
+        all_images.sort(key=lambda x: (
+            os.path.basename(x).lower(),  # Sort alphabetically first
+            extract_number_from_url(x)    # Then sort by number
+        ))
+        
         with open(output_file, 'w') as f:
             for url in all_images:
                 f.write(f"{url}\n")
-        print(f"Found {len(all_images)} valid images. Results saved to {output_file}")
+                
+        print(f"Found and sorted {len(all_images)} valid images. Results saved to {output_file}")
         
         # Print summary
         print("\nSummary:")
