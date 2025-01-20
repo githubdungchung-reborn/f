@@ -1,0 +1,194 @@
+name: Update Existing Image Branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_range:
+        description: "Start of range (optional)"
+        required: false
+        type: string
+      end_range:
+        description: "End of range (optional)"
+        required: false
+        type: string
+
+jobs:
+  update-image-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    
+    steps:
+      - name: Initial disk space cleanup
+        run: |
+          echo "Performing initial system cleanup..."
+          df -h
+          
+          # Remove unnecessary large packages
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/lib/node_modules
+          
+          # Clear package manager caches
+          sudo apt-get clean
+          sudo apt-get autoremove -y
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /tmp/*
+          sudo find /var/log -type f -exec rm -f {} \;
+          
+          echo "Available disk space after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0  # Fetch all history to check branches
+          ref: main
+          sparse-checkout: |
+            organize_range.json
+            images_*
+          sparse-checkout-cone-mode: false
+
+      - name: Load or initialize range
+        id: load-range
+        run: |
+          if [ -f organize_range.json ]; then
+            start=$(jq -r '.start' organize_range.json)
+            end=$(jq -r '.end' organize_range.json)
+          else
+            start="${{ inputs.start_range || '1000' }}"
+            end="${{ inputs.end_range || '1500' }}"
+            echo "{\"start\": $start, \"end\": $end}" > organize_range.json
+          fi
+          echo "start=$start" >> $GITHUB_OUTPUT
+          echo "end=$end" >> $GITHUB_OUTPUT
+
+      - name: Set up branch name and check existence
+        id: branch
+        run: |
+          BRANCH_NAME="${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # Check if branch exists
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "branch_exists=true" >> $GITHUB_OUTPUT
+            echo "Branch $BRANCH_NAME exists, will update it"
+          else
+            echo "branch_exists=false" >> $GITHUB_OUTPUT
+            echo "Branch $BRANCH_NAME does not exist, will create new branch using organize-images-branches workflow"
+            exit 1
+          fi
+
+      - name: Find matching folders
+        id: find-folders
+        run: |
+          echo "Finding matching folders..."
+          
+          # Find and save matching folders
+          echo "folders<<EOF" >> $GITHUB_OUTPUT
+          find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}" | while read -r folder; do
+            if [ -d "$folder" ] && [ -r "$folder" ]; then
+              echo "$folder" >> $GITHUB_OUTPUT
+              echo "Found matching folder: $folder"
+            fi
+          done
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Backup matching folders
+          mkdir -p /tmp/matching_folders_backup
+          while IFS= read -r folder; do
+            if [ ! -z "$folder" ]; then
+              cp -r "$folder" /tmp/matching_folders_backup/
+            fi
+          done <<< "$(find . -maxdepth 1 -type d -name "images_*_*_${{ steps.load-range.outputs.start }}_to_${{ steps.load-range.outputs.end }}")"
+
+      - name: Update existing branch
+        if: steps.branch.outputs.branch_exists == 'true'
+        run: |
+          echo "Updating existing branch: ${{ steps.branch.outputs.branch_name }}"
+          
+          # Fetch and checkout the target branch
+          git fetch origin "${{ steps.branch.outputs.branch_name }}"
+          git checkout "${{ steps.branch.outputs.branch_name }}"
+          
+          # Move new files from backup
+          if [ -d "/tmp/matching_folders_backup" ]; then
+            echo "Adding new files to branch..."
+            cp -r /tmp/matching_folders_backup/* .
+          else
+            echo "No new files to add"
+          fi
+          
+          # Stage all changes
+          git add .
+          
+          # Commit only if there are changes
+          if ! git diff --cached --quiet; then
+            git config user.name "${{ github.repository_owner }}"
+            git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+            git commit -m "feat: update images for range ${{ steps.branch.outputs.branch_name }}"
+            git push origin "${{ steps.branch.outputs.branch_name }}"
+            echo "Successfully updated branch with new images"
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Cleanup backup
+        if: always()
+        run: |
+          rm -rf /tmp/matching_folders_backup
+          echo "Cleaned up temporary backup"
+
+      - name: Update main branch
+        if: success()
+        run: |
+          git checkout main
+          
+          # Remove processed folders from main
+          while IFS= read -r folder; do
+            folder="${folder#./}"
+            if [ ! -z "$folder" ]; then
+              echo "Removing folder from main: $folder"
+              rm -rf "$folder"
+              git add -u "$folder"
+            fi
+          done <<< "${{ steps.find-folders.outputs.folders }}"
+          
+          # Update range for next run
+          next_start=$((${{ steps.load-range.outputs.end }} + 1))
+          next_end=$((${{ steps.load-range.outputs.end }} + 501))
+          echo "{\"start\": $next_start, \"end\": $next_end}" > organize_range.json
+          
+          git add organize_range.json
+          
+          if ! git diff --cached --quiet; then
+            git config user.name "${{ github.repository_owner }}"
+            git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+            git commit -m "chore: update range to $next_start-$next_end"
+            git push origin main
+          fi
+
+      - name: Final cleanup
+        if: always()
+        run: |
+          echo "Performing final cleanup..."
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+          echo "Final disk space status:"
+          df -h
+
+      - name: Re-trigger workflow
+        run: |
+          sleep 60
+          gh workflow run update-image-branches.yml \
+            --ref main \
+            --repo ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }} 
