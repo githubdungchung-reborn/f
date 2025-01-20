@@ -3,6 +3,7 @@ import re
 import shutil
 from datetime import datetime
 import subprocess
+import sys
 
 def get_remote_branches():
     """Get list of remote branches with ranges"""
@@ -40,7 +41,7 @@ def get_image_prefix(filename):
         return match.group(1)
     return None
 
-def organize_images():
+def organize_images(dry_run=False):
     # Get all range patterns from remote branches
     range_patterns = get_remote_branches()
     
@@ -50,8 +51,9 @@ def organize_images():
     # Find all image folders in root directory
     image_folders = [f for f in os.listdir('.') if f.startswith('images_') and os.path.isdir(f)]
     
-    # Track statistics
+    # Track statistics and moved files
     stats = {'processed': 0, 'moved': 0, 'errors': 0}
+    moved_files = []
     
     for folder in image_folders:
         print(f"\nProcessing folder: {folder}")
@@ -86,14 +88,22 @@ def organize_images():
                 # Create target folder if it doesn't exist
                 os.makedirs(target_folder, exist_ok=True)
                 
-                # Move file to target folder
+                # Source and target paths
                 source_path = os.path.join(folder, filename)
                 target_path = os.path.join(target_folder, filename)
                 
                 try:
-                    shutil.move(source_path, target_path)
+                    if not dry_run:
+                        shutil.move(source_path, target_path)
                     stats['moved'] += 1
-                    print(f"Moved {filename} to {target_folder}")
+                    print(f"{'Would move' if dry_run else 'Moved'} {filename} to {target_folder}")
+                    
+                    # Record the move operation
+                    moved_files.append((
+                        target_path,
+                        matching_range['branch'],
+                        source_path
+                    ))
                 except Exception as e:
                     print(f"Error moving {filename}: {e}")
                     stats['errors'] += 1
@@ -101,11 +111,18 @@ def organize_images():
                 print(f"No matching range found for {filename}")
                 stats['errors'] += 1
     
+    # Write moved files to tracking file
+    if not dry_run and moved_files:
+        with open('moved_files.txt', 'w') as f:
+            for target, branch, source in moved_files:
+                f.write(f"{target}\t{branch}\t{source}\n")
+    
     # Print summary
     print("\nOrganization complete!")
     print(f"Total files processed: {stats['processed']}")
-    print(f"Files moved: {stats['moved']}")
+    print(f"Files {'to be moved' if dry_run else 'moved'}: {stats['moved']}")
     print(f"Errors: {stats['errors']}")
 
 if __name__ == "__main__":
-    organize_images() 
+    dry_run = len(sys.argv) > 1 and sys.argv[1].lower() == 'true'
+    organize_images(dry_run) 
