@@ -162,10 +162,34 @@ jobs:
           echo "has_images: ${{ steps.check-downloads.outputs.has_images }}"
           echo "folder_name: ${{ steps.check-downloads.outputs.folder_name }}"
 
-  commit-changes:
+  check-artifacts:
     needs: [prepare-matrix, download-batch]
-    # Add condition to skip this job if no images were found
-    if: needs.download-batch.outputs.has_images == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      has_artifacts: ${{ steps.check.outputs.has_artifacts }}
+    steps:
+      - name: List artifacts
+        uses: actions/github-script@v7
+        id: check
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              run_id: context.runId
+            });
+            
+            const hasArtifacts = artifacts.data.artifacts.some(artifact => 
+              artifact.name.startsWith('batch-')
+            );
+            
+            console.log(`Found artifacts: ${hasArtifacts}`);
+            core.setOutput('has_artifacts', hasArtifacts);
+
+  commit-changes:
+    needs: [prepare-matrix, download-batch, check-artifacts]
+    # Only check for actual artifacts
+    if: needs.check-artifacts.outputs.has_artifacts == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
