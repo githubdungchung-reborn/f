@@ -1,0 +1,63 @@
+name: Upload Images to MongoDB
+
+on:
+  workflow_dispatch:
+    inputs:
+      log_file:
+        description: 'Path to log file (relative to repository root)'
+        required: true
+        default: 'logs/success_images_latest.log'
+        type: string
+
+jobs:
+  upload-to-mongodb:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pymongo
+          
+      - name: Find latest log file
+        id: find-log
+        run: |
+          if [ "${{ inputs.log_file }}" = "logs/success_images_latest.log" ]; then
+            # Find the most recent log file
+            LATEST_LOG=$(ls -t logs/success_images_*.log 2>/dev/null | head -n1)
+            if [ -n "$LATEST_LOG" ]; then
+              echo "log_file=$LATEST_LOG" >> $GITHUB_OUTPUT
+              echo "Found latest log file: $LATEST_LOG"
+            else
+              echo "Error: No log files found in logs directory"
+              exit 1
+            fi
+          else
+            echo "log_file=${{ inputs.log_file }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Upload to MongoDB
+        env:
+          MONGODB_URL: ${{ secrets.MONGODB_URL }}
+        run: |
+          python scripts/upload_images_to_mongodb.py "${{ steps.find-log.outputs.log_file }}"
+          
+      - name: Report completion
+        if: always()
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "Successfully uploaded image data to MongoDB"
+          else
+            echo "Failed to upload image data to MongoDB"
+            exit 1
+          fi 

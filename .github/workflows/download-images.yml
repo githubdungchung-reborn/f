@@ -26,7 +26,7 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           sparse-checkout: |
-            range.json
+            scripts/range.json
             .github/workflows/download-images.yml
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -34,9 +34,9 @@ jobs:
       - name: Load state and prepare matrix
         id: set-matrix
         run: |
-          if [ -f range.json ]; then
-            start=$(jq -r '.start' range.json)
-            end=$(jq -r '.end' range.json)
+          if [ -f scripts/range.json ]; then
+            start=$(jq -r '.start' scripts/range.json)
+            end=$(jq -r '.end' scripts/range.json)
           else
             start="${{ inputs.start_range || '1000' }}"
             end="${{ inputs.end_range || '2000' }}"
@@ -71,7 +71,7 @@ jobs:
           token: ${{ secrets.PAT }}
           # Use sparse checkout to minimize disk usage
           sparse-checkout: |
-            crawler_images.py
+            scripts/crawler_images.py
           sparse-checkout-cone-mode: false
           fetch-depth: 1
   
@@ -116,7 +116,7 @@ jobs:
           mkdir -p "$folder"
           
           echo "Processing batch: ${{ matrix.range.prefix }}${{ matrix.range.start }} to ${{ matrix.range.prefix }}${{ matrix.range.end }}"
-          python crawler_images.py "${{ matrix.range.prefix }}" "${{ matrix.range.start }}" "${{ matrix.range.end }}" "$folder"
+          python scripts/crawler_images.py "${{ matrix.range.prefix }}" "${{ matrix.range.start }}" "${{ matrix.range.end }}" "$folder"
           
           # Check disk space after download
           available_space=$(df -BM / | awk 'NR==2 {print $4}' | sed 's/M//')
@@ -277,11 +277,11 @@ jobs:
             fi
           fi
           
-          echo "{\"start\": $next_start, \"end\": $next_end}" > range.json
+          echo "{\"start\": $next_start, \"end\": $next_end}" > scripts/range.json
           echo "Updated range.json to start=$next_start, end=$next_end"
           
           # Stage range.json and empty_ranges.log first
-          git add range.json empty_ranges.log
+          git add scripts/range.json empty_ranges.log
 
           # Process downloaded files in smaller batches
           if [ -d "./downloads" ] && [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then

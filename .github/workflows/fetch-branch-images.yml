@@ -50,7 +50,7 @@ jobs:
           output_file="image_urls/branch_images_${timestamp}.txt"
           
           # Run the script with current repo owner and name from github context
-          python fetch_branch_images.py \
+          python scripts/fetch_branch_images.py \
             "${{ github.repository_owner }}" \
             "${{ github.event.repository.name }}" \
             "$output_file"
