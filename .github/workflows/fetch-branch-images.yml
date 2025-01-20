@@ -81,9 +81,13 @@ jobs:
             success_log="logs/success_images_${timestamp}.log"
             echo "Successfully fetched and sorted images at $(date '+%Y-%m-%d %H:%M:%S'):" > "$success_log"
             cat "${{ steps.fetch-images.outputs.output_file }}" >> "$success_log"
+            
+            # Clean up old failed branch logs after successful retry
+            find logs -name "failed_branches_*.log" -type f -delete
+            find logs -name "error_log_*.log" -type f -delete
           fi
           
-          # Compress old logs if they exist
+          # Compress logs older than 7 days
           find logs -name "*.log" -mtime +7 -exec gzip {} \;
 
       - name: Commit results
@@ -99,14 +103,27 @@ jobs:
           # Get count of images found
           image_count=$(wc -l < "${{ steps.fetch-images.outputs.output_file }}")
           
-          # Commit changes
-          git commit -m "feat: add $image_count sorted image URLs from branch scan
+          # Check for failed branches log
+          failed_count=0
+          latest_failed_log=$(find logs -name "failed_branches_*.log" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -f2- -d" ")
+          if [ -f "$latest_failed_log" ]; then
+            failed_count=$(grep -c "Failed to fetch contents for branch:" "$latest_failed_log")
+          fi
           
+          # Commit changes with status
+          commit_message="feat: add $image_count sorted image URLs from branch scan
+
           - Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
           - Images found and sorted: $image_count
           - Output file: ${{ steps.fetch-images.outputs.output_file }}
           - Success log: logs/success_images_*.log"
           
+          if [ $failed_count -gt 0 ]; then
+            commit_message="$commit_message
+          - Warning: $failed_count branches failed after retries"
+          fi
+          
+          git commit -m "$commit_message"
           git push
 
       - name: Cleanup old files

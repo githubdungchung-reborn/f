@@ -8,6 +8,7 @@ from functools import partial
 import sys
 from typing import List, Dict, Optional
 import time
+import random
 
 def get_remote_branches() -> List[Dict[str, any]]:
     """Get list of remote branches with ranges"""
@@ -50,7 +51,7 @@ def check_image_exists(url: str) -> bool:
 def get_branch_contents(repo_owner: str, repo_name: str, branch: str, error_log_file: str) -> List[str]:
     """Get list of files and folders in a branch using GitHub API with retry logic"""
     max_retries = 3
-    retry_delay = 60  # seconds
+    retry_delay = random.randint(300, 600)  # Random delay between 5-10 minutes
     
     for attempt in range(max_retries):
         try:
@@ -72,9 +73,11 @@ def get_branch_contents(repo_owner: str, repo_name: str, branch: str, error_log_
             
             # If rate limited, wait and retry
             if response.status_code == 403 and 'rate limit exceeded' in str(e):
-                if attempt < max_retries - 1:  # Don't sleep on last attempt
+                if attempt < max_retries - 1:
                     print(f"Rate limit exceeded. Waiting {retry_delay} seconds before retry...")
                     time.sleep(retry_delay)
+                    # Generate new random delay for next attempt
+                    retry_delay = random.randint(300, 600)
                     continue
             
             return []
@@ -140,7 +143,7 @@ def main(repo_owner: str, repo_name: str, output_file: str):
     
     print(f"Found {len(branches)} valid branches")
     
-    # Process branches in parallel with reduced concurrency to avoid rate limits
+    # First pass: Process all branches
     with ThreadPoolExecutor(max_workers=3) as executor:
         process_branch = partial(
             process_branch_images, 
@@ -150,32 +153,58 @@ def main(repo_owner: str, repo_name: str, output_file: str):
         )
         results = list(executor.map(process_branch, branches))
     
+    # Get failed branches from log file
+    failed_branches = []
+    if os.path.exists(failed_branches_file):
+        with open(failed_branches_file, 'r') as f:
+            for line in f:
+                if 'Failed to fetch contents for branch:' in line:
+                    match = re.search(r'branch: (\d+_to_\d+) \(range: (\d+)-(\d+)\)', line)
+                    if match:
+                        failed_branches.append({
+                            'branch': match.group(1),
+                            'start': int(match.group(2)),
+                            'end': int(match.group(3))
+                        })
+    
+    # Second pass: Retry failed branches
+    if failed_branches:
+        print(f"\nRetrying {len(failed_branches)} failed branches...")
+        time.sleep(random.randint(300, 600))  # Wait 5-10 minutes before retrying
+        
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            retry_results = list(executor.map(process_branch, failed_branches))
+            
+            # Add successful retries to results
+            results.extend(retry_results)
+    
     # Flatten results and sort images
     all_images = [url for branch_results in results for url in branch_results]
     
     if all_images:
-        # Sort images by alphabet and number
+        # Sort images
         all_images.sort(key=lambda x: (
-            os.path.basename(x).lower(),  # Sort alphabetically first
-            extract_number_from_url(x)    # Then sort by number
+            os.path.basename(x).lower(),
+            extract_number_from_url(x)
         ))
         
+        # Write results to file
         with open(output_file, 'w') as f:
             for url in all_images:
                 f.write(f"{url}\n")
-                
-        print(f"Found and sorted {len(all_images)} valid images. Results saved to {output_file}")
         
-        # Print summary
-        print("\nSummary:")
+        # Create new success log
+        success_log = os.path.join(logs_dir, f'success_images_{timestamp}.log')
+        with open(success_log, 'w') as f:
+            f.write(f"Successfully fetched and sorted images at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}:\n")
+            f.write(f"Total images found: {len(all_images)}\n\n")
+            for url in all_images:
+                f.write(f"{url}\n")
+        
+        print(f"\nFinal Summary:")
         print(f"Total branches processed: {len(branches)}")
-        with open(failed_branches_file) as f:
-            failed_count = len(f.readlines())
-        print(f"Failed branches: {failed_count}")
-        print(f"Successful branches: {len(branches) - failed_count}")
+        print(f"Initially failed branches: {len(failed_branches)}")
         print(f"Total images found: {len(all_images)}")
-        print(f"\nCheck {failed_branches_file} for details about failed branches")
-        print(f"Check {error_log_file} for detailed error logs")
         
         return True
     else:
