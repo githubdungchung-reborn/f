@@ -46,7 +46,7 @@ jobs:
         run: |
           python organize_images.py ${{ inputs.dry_run }}
 
-      - name: Process moved files
+      - name: Commit changes to branches
         if: ${{ !inputs.dry_run }}
         run: |
           if [ ! -f moved_files.txt ]; then
@@ -57,44 +57,61 @@ jobs:
           git config user.name "${{ github.repository_owner }}"
           git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
 
-          # Initialize batch processing
+          # Process files in batches
           batch_size=10
-          current_batch=0
-          total_files=$(wc -l < moved_files.txt)
+          batch_count=0
+          declare -A branch_files
+          declare -A source_files
 
-          # Read moved_files.txt and process each file
+          # Group files by branch
           while IFS=$'\t' read -r file branch source; do
-            echo "Processing $file for branch $branch"
-            current_batch=$((current_batch + 1))
-            
-            # Checkout the target branch
-            git checkout "$branch" || git checkout -b "$branch"
-            
-            # Create directory if it doesn't exist
-            mkdir -p "$(dirname "$file")"
-            
-            # Move file from main to current branch
-            git checkout main -- "$source"
-            
-            # Stage the file in the current branch
-            git add "$file"
-            
-            # If batch size reached or last file, commit and push
-            if [ $((current_batch % batch_size)) -eq 0 ] || [ "$current_batch" -eq "$total_files" ]; then
-              # Commit changes in the branch
-              git commit -m "chore: move batch of images to correct range branch"
-              git push origin "$branch"
-              
-              # Switch back to main to remove processed files
-              git checkout main
-              git rm -f "$source"
-              git commit -m "chore: remove processed images after moving to range branch"
-              git push origin main
-              
-              # Clean up to save disk space
-              git gc --auto --quiet
+            if [ -z "${branch_files[$branch]}" ]; then
+              branch_files[$branch]=""
+              source_files[$branch]=""
             fi
+            branch_files[$branch]="${branch_files[$branch]} $file"
+            source_files[$branch]="${source_files[$branch]} $source"
+            ((batch_count++))
           done < moved_files.txt
+
+          # Process each branch
+          for branch in "${!branch_files[@]}"; do
+            echo "Processing branch: $branch"
+            
+            # Checkout or create branch
+            git checkout "$branch" 2>/dev/null || git checkout -b "$branch"
+            
+            # Add files to branch
+            for file in ${branch_files[$branch]}; do
+              if [ -f "$file" ]; then
+                mkdir -p "$(dirname "$file")"
+                git add "$file"
+              fi
+            done
+            
+            # Commit and push if there are changes
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: organize images into correct range folders"
+              git push origin "$branch"
+            fi
+            
+            # Switch to main and remove source files
+            git checkout main
+            for source in ${source_files[$branch]}; do
+              if [ -f "$source" ]; then
+                git rm -f "$source"
+              fi
+            done
+            
+            # Commit and push main if there are changes
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: remove organized images from main branch"
+              git push origin main
+            fi
+            
+            # Cleanup to save space
+            git gc --auto --quiet
+          done
 
       - name: Cleanup
         if: always()
