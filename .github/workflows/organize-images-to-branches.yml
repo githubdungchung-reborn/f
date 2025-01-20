@@ -1,0 +1,104 @@
+name: Organize Images to Range Branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (only show what would be moved)"
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  organize-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Initial disk space cleanup
+        run: |
+          echo "Performing initial system cleanup..."
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/share/powershell
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          fetch-depth: 0  # Need full history to get all branches
+          ref: main
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Run organize script
+        id: organize
+        run: |
+          python organize_images.py ${{ inputs.dry_run }}
+
+      - name: Process moved files
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ ! -f moved_files.txt ]; then
+            echo "No files were moved"
+            exit 0
+          fi
+
+          git config user.name "${{ github.repository_owner }}"
+          git config user.email "${{ github.repository_owner }}@users.noreply.github.com"
+
+          # Initialize batch processing
+          batch_size=10
+          current_batch=0
+          total_files=$(wc -l < moved_files.txt)
+
+          # Read moved_files.txt and process each file
+          while IFS=$'\t' read -r file branch source; do
+            echo "Processing $file for branch $branch"
+            current_batch=$((current_batch + 1))
+            
+            # Checkout the target branch
+            git checkout "$branch" || git checkout -b "$branch"
+            
+            # Create directory if it doesn't exist
+            mkdir -p "$(dirname "$file")"
+            
+            # Move file from main to current branch
+            git checkout main -- "$source"
+            
+            # Stage the file in the current branch
+            git add "$file"
+            
+            # If batch size reached or last file, commit and push
+            if [ $((current_batch % batch_size)) -eq 0 ] || [ "$current_batch" -eq "$total_files" ]; then
+              # Commit changes in the branch
+              git commit -m "chore: move batch of images to correct range branch"
+              git push origin "$branch"
+              
+              # Switch back to main to remove processed files
+              git checkout main
+              git rm -f "$source"
+              git commit -m "chore: remove processed images after moving to range branch"
+              git push origin main
+              
+              # Clean up to save disk space
+              git gc --auto --quiet
+            fi
+          done < moved_files.txt
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f moved_files.txt
+          git checkout main
+          echo "Cleanup complete" 
