@@ -4,6 +4,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import time
+from datetime import datetime
 
 def check_code(code, prefix):
     """Check if an image code is valid"""
@@ -69,4 +70,8 @@ if __name__ == "__main__":
     # Create or clear the output file
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
-    scan_range(prefix, start_code, end_code, output_file) 
+    scan_range(prefix, start_code, end_code, output_file)
+
+    # When writing to the log file, use append mode ('a') instead of write mode ('w')
+    with open(output_file, 'a') as f:
+        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Scan completed\n") 

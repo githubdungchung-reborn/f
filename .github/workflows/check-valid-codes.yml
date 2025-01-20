@@ -100,9 +100,11 @@ jobs:
       
       - name: Check valid codes
         run: |
-          today=$(date +%Y%m%d)
-          log_file="valid_codes/valid_codes_${{ matrix.range.prefix }}_${today}.log"
+          log_file="valid_codes/valid_codes_${{ matrix.range.prefix }}.log"
           mkdir -p valid_codes
+          
+          # Create log file if it doesn't exist
+          touch "$log_file"
           
           python check_valid_codes.py \
             "${{ matrix.range.prefix }}" \
