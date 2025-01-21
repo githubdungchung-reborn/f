@@ -26,7 +26,7 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           sparse-checkout: |
-            scripts/range.json
+            input/range.json
             .github/workflows/download-images.yml
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -34,9 +34,9 @@ jobs:
       - name: Load state and prepare matrix
         id: set-matrix
         run: |
-          if [ -f scripts/range.json ]; then
-            start=$(jq -r '.start' scripts/range.json)
-            end=$(jq -r '.end' scripts/range.json)
+          if [ -f input/range.json ]; then
+            start=$(jq -r '.start' input/range.json)
+            end=$(jq -r '.end' input/range.json)
           else
             start="${{ inputs.start_range || '1000' }}"
             end="${{ inputs.end_range || '2000' }}"
@@ -215,9 +215,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
-          # Include image directories in sparse checkout
           sparse-checkout: |
-            range.json
+            input/range.json
             empty_ranges.log
             images_*
           sparse-checkout-cone-mode: false
@@ -226,7 +225,7 @@ jobs:
       - name: Configure Git for sparse checkout
         run: |
           git config core.sparseCheckout true
-          echo "range.json" >> .git/info/sparse-checkout
+          echo "input/range.json" >> .git/info/sparse-checkout
           echo "empty_ranges.log" >> .git/info/sparse-checkout
           echo "images_*" >> .git/info/sparse-checkout
           git config advice.updateSparsePath false
@@ -265,27 +264,25 @@ jobs:
 
           # Update range.json based on whether images were found
           if [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then
-            # If images were found, increase the range as before
             next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
             next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 501))
           else
-            # If no images were found, decrease the range by 501
             current_start=${{ needs.prepare-matrix.outputs.total_end }}
             next_start=$((current_start - 501))
             next_end=$current_start
             
-            # Ensure we don't go below 1
             if [ $next_start -lt 1 ]; then
               next_start=1
               next_end=501
             fi
           fi
           
-          echo "{\"start\": $next_start, \"end\": $next_end}" > scripts/range.json
+          # Update the path to range.json
+          echo "{\"start\": $next_start, \"end\": $next_end}" > input/range.json
           echo "Updated range.json to start=$next_start, end=$next_end"
           
-          # Stage range.json and empty_ranges.log first
-          git add scripts/range.json empty_ranges.log
+          # Stage range.json with updated path
+          git add input/range.json empty_ranges.log
 
           # Process downloaded files in smaller batches
           if [ -d "./downloads" ] && [ "${{ needs.download-batch.outputs.has_images }}" = "true" ]; then

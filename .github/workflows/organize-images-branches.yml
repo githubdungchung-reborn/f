@@ -53,20 +53,20 @@ jobs:
           fetch-depth: 1
           ref: main
           sparse-checkout: |
-            scripts/organize_range.json
+            input/organize_range.json
             images_*
           sparse-checkout-cone-mode: false
 
       - name: Load or initialize range
         id: load-range
         run: |
-          if [ -f scripts/organize_range.json ]; then
-            start=$(jq -r '.start' scripts/organize_range.json)
-            end=$(jq -r '.end' scripts/organize_range.json)
+          if [ -f input/organize_range.json ]; then
+            start=$(jq -r '.start' input/organize_range.json)
+            end=$(jq -r '.end' input/organize_range.json)
           else
             start="${{ inputs.start_range || '1000' }}"
             end="${{ inputs.end_range || '1500' }}"
-            echo "{\"start\": $start, \"end\": $end}" > scripts/organize_range.json
+            echo "{\"start\": $start, \"end\": $end}" > input/organize_range.json
           fi
           echo "start=$start" >> $GITHUB_OUTPUT
           echo "end=$end" >> $GITHUB_OUTPUT
@@ -225,9 +225,9 @@ jobs:
           # Update range for next run
           next_start=$((${{ steps.load-range.outputs.end }} + 1))
           next_end=$((${{ steps.load-range.outputs.end }} + 501))
-          echo "{\"start\": $next_start, \"end\": $next_end}" > scripts/organize_range.json
+          echo "{\"start\": $next_start, \"end\": $next_end}" > input/organize_range.json
           
-          git add scripts/organize_range.json
+          git add input/organize_range.json
           
           if ! git diff --cached --quiet; then
             git config user.name "${{ github.repository_owner }}"

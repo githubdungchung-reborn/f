@@ -24,7 +24,7 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           sparse-checkout: |
-            scripts/valid_codes_range.json
+            input/valid_codes_range.json
             .github/workflows/check-valid-codes.yml
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -32,9 +32,9 @@ jobs:
       - name: Load state and prepare matrix
         id: set-matrix
         run: |
-          if [ -f scripts/valid_codes_range.json ]; then
-            start=$(jq -r '.start' scripts/valid_codes_range.json)
-            end=$(jq -r '.end' scripts/valid_codes_range.json)
+          if [ -f input/valid_codes_range.json ]; then
+            start=$(jq -r '.start' input/valid_codes_range.json)
+            end=$(jq -r '.end' input/valid_codes_range.json)
           else
             start="${{ inputs.start_range || '1000' }}"
             end="${{ inputs.end_range || '2000' }}"
@@ -69,8 +69,8 @@ jobs:
           token: ${{ secrets.PAT }}
           # Use sparse checkout to minimize disk usage
           sparse-checkout: |
-            scripts/check_valid_codes.py
-            scripts/valid_codes_range.json
+            input/check_valid_codes.py
+            input/valid_codes_range.json
             valid_codes
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -104,7 +104,7 @@ jobs:
           # Create log file if it doesn't exist
           touch "$log_file"
           
-          python scripts/check_valid_codes.py \
+          python input/check_valid_codes.py \
             "${{ matrix.range.prefix }}" \
             "${{ matrix.range.start }}" \
             "${{ matrix.range.end }}" \
@@ -148,7 +148,7 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           sparse-checkout: |
-            scripts/valid_codes_range.json
+            input/valid_codes_range.json
             valid_codes
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -167,7 +167,7 @@ jobs:
           # Update valid_codes_range.json for next run
           next_start=$((${{ needs.prepare-matrix.outputs.total_end }} + 1))
           next_end=$((${{ needs.prepare-matrix.outputs.total_end }} + 1001))
-          echo "{\"start\": $next_start, \"end\": $next_end}" > scripts/valid_codes_range.json
+          echo "{\"start\": $next_start, \"end\": $next_end}" > input/valid_codes_range.json
           
           # Create valid_codes directory if it doesn't exist
           mkdir -p valid_codes
@@ -188,7 +188,7 @@ jobs:
           fi
           
           # Stage all changes
-          git add scripts/valid_codes_range.json
+          git add input/valid_codes_range.json
           git add valid_codes/
           
           # Commit and push if there are changes
