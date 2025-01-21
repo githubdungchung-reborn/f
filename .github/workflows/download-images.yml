@@ -173,18 +173,22 @@ jobs:
         id: check
         with:
           script: |
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.name,
-              run_id: context.runId
-            });
-            
-            const hasArtifacts = artifacts.data.artifacts.some(artifact => 
-              artifact.name.startsWith('batch-')
-            );
-            
-            console.log(`Found artifacts: ${hasArtifacts}`);
-            core.setOutput('has_artifacts', hasArtifacts);
+            try {
+              const artifacts = await github.rest.actions.listArtifactsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.name
+              });
+              
+              const hasArtifacts = artifacts.data.artifacts.some(artifact => 
+                artifact.name.startsWith('batch-')
+              );
+              
+              console.log(`Found artifacts: ${hasArtifacts}`);
+              core.setOutput('has_artifacts', hasArtifacts);
+            } catch (error) {
+              console.error('Error checking artifacts:', error);
+              core.setOutput('has_artifacts', false);
+            }
 
   commit-changes:
     needs: [prepare-matrix, download-batch, check-artifacts]
