@@ -172,22 +172,32 @@ jobs:
         uses: actions/github-script@v7
         id: check
         with:
+          github-token: ${{ secrets.PAT }}
           script: |
             try {
+              const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
               const artifacts = await github.rest.actions.listArtifactsForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.name
+                owner,
+                repo,
+                per_page: 100
               });
               
               const hasArtifacts = artifacts.data.artifacts.some(artifact => 
                 artifact.name.startsWith('batch-')
               );
               
+              console.log(`Repository: ${owner}/${repo}`);
               console.log(`Found artifacts: ${hasArtifacts}`);
               core.setOutput('has_artifacts', hasArtifacts);
             } catch (error) {
               console.error('Error checking artifacts:', error);
+              console.error('Repository:', process.env.GITHUB_REPOSITORY);
               core.setOutput('has_artifacts', false);
+              if (error.status === 404) {
+                console.log('Repository or artifacts not found. Continuing workflow...');
+                return;
+              }
+              throw error;
             }
 
   commit-changes:
