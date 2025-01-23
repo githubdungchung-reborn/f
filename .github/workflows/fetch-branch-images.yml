@@ -3,7 +3,7 @@ name: Fetch Branch Images
 on:
   workflow_dispatch:  # Keep manual trigger without inputs
   schedule:
-    - cron: "0 */6 * * *"  # Run every 6 hours
+    - cron: "0 0 1,15 * *"  # Run on the 1st and the 15th of every month
 
 jobs:
   fetch-images:

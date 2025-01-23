@@ -12,7 +12,7 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 * * * *"  # Runs at the start of every hour
+    - cron: "0 0 */2 * *"  # Runs once every 2 days
 
 jobs:
   prepare-matrix:
